@@ -13,6 +13,7 @@ source(modDirectory .. "scripts/rmlib/RmLogging.lua")
 source(modDirectory .. "scripts/RmAdjustStorageCapacity.lua")
 source(modDirectory .. "scripts/events/RmStorageCapacitySyncEvent.lua")
 source(modDirectory .. "scripts/gui/RmStorageCapacityDialog.lua")
+source(modDirectory .. "scripts/RmMenuIntegration.lua")
 
 -- Get logger for this module
 local Log = RmLogging.getLogger("AdjustStorageCapacity")

@@ -13,6 +13,7 @@ Supports multiplayer with a permission system - server admins can modify any sto
 ## Features
 
 - **Easy capacity dialog:** Press K at any storage to open the settings
+- **In-game menu integration:** Press K in the Production or Animals menu to adjust the selected facility
 - **Per-filltype editing:** Adjust capacity for each fill type individually
 - **Inline text input:** Double-click or press Enter on a row to edit
 - **Persistent settings:** Changes save with your game
@@ -49,12 +50,19 @@ Supports multiplayer with a permission system - server admins can modify any sto
 
 ## Usage
 
+### At a Storage Facility
 1. Load a savegame with the mod enabled
 2. Approach a storage facility (silo, production, husbandry)
 3. Press `K` to open the capacity settings dialog
 4. Double-click or press Enter on a fill type to edit its capacity
 5. Enter the new value and press Enter to apply
 6. Press Escape to cancel editing or close the dialog
+
+### From In-Game Menu
+1. Open the Production or Animals menu (ESC → Production / Animals)
+2. Select a production facility or husbandry
+3. Press `K` to open the capacity dialog for the selected facility
+4. Edit capacities as described above
 
 ## Console Commands
 
@@ -91,6 +99,12 @@ The mod supports multiplayer with a permission system:
 - **Platform**: PC (Windows/macOS)
 
 ## Changelog
+
+### 0.2.0.0 (Alpha)
+
+- Added K button to Production and Animals in-game menus
+- Adjust capacity directly from menu without approaching storage
+- Fixed dialog overlay issue (now properly covers menu background)
 
 ### 0.1.0.0
 

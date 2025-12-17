@@ -228,6 +228,9 @@ function RmAdjustStorageCapacity.onMissionStarted()
     -- Register GUI dialog
     RmStorageCapacityDialog.register()
 
+    -- Initialize menu integration (adds K button to production/husbandry menus)
+    RmMenuIntegration.init()
+
     -- Capture original capacities for all storages (before any modifications)
     RmAdjustStorageCapacity:captureAllOriginalCapacities()
 

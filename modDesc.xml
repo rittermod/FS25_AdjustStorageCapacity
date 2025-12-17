@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="100">
     <author>Ritter</author>
-    <version>0.1.0.0</version>
+    <version>0.2.0.0</version>
     <title>
         <en>Adjust Storage Capacity</en>
     </title>
@@ -13,6 +13,7 @@ Supports multiplayer with permission system - admins can modify any storage, far
 
 Features:
 - Press K at any storage to open capacity dialog
+- Press K in Production or Animals menu to adjust selected facility
 - Edit capacity for each fill type
 - Settings persist across save/load
 - Full multiplayer support
@@ -33,6 +34,11 @@ Console Commands:
 - ascReset <index> [fillType]: Reset to original
 
 Changelog:
+0.2.0.0 (Alpha):
+- Added K button to Production and Animals in-game menus
+- Adjust capacity directly from menu without approaching storage
+- Fixed dialog overlay issue (now properly covers menu background)
+
 0.1.0.0:
 - Initial alpha release
 - GUI dialog for viewing and editing storage capacities
