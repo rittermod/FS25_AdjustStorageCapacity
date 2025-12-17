@@ -33,5 +33,11 @@
         <text name="rm_asc_dialog_cancel" text="Cancel"/>
         <text name="rm_asc_dialog_close" text="Close"/>
         <text name="rm_asc_dialog_hint" text="Double-click to edit capacity"/>
+
+        <!-- Vehicle capacity -->
+        <text name="rm_asc_action_adjustVehicleCapacity" text="Adjust Vehicle Capacity"/>
+        <text name="rm_asc_vehicle_dialog_title" text="Adjust Vehicle Capacity"/>
+        <text name="rm_asc_vehicle_noFillUnits" text="No fill units found for this vehicle"/>
+        <text name="rm_asc_vehicle_capacitySet" text="Capacity for %s set to %d"/>
     </texts>
 </l10n>

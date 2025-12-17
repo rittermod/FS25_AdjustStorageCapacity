@@ -1,19 +1,20 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="100">
     <author>Ritter</author>
-    <version>0.2.0.0</version>
+    <version>0.3.0.0</version>
     <title>
         <en>Adjust Storage Capacity</en>
     </title>
     <description>
         <en><![CDATA[
-Adjust bulk storage capacities for silos, productions, and animal husbandries.
+Adjust storage capacities for silos, productions, husbandries, and vehicles.
 
 Supports multiplayer with permission system - admins can modify any storage, farm managers can modify their farm's storage.
 
 Features:
-- Press K at any storage to open capacity dialog
+- Press K at any storage or vehicle to open capacity dialog
 - Press K in Production or Animals menu to adjust selected facility
+- Walk near vehicles (trailers, harvesters, tankers) to adjust fill unit capacities
 - Edit capacity for each fill type
 - Settings persist across save/load
 - Full multiplayer support
@@ -23,17 +24,28 @@ Supported:
 - Production storage
 - Husbandry input/output (straw, water, milk, manure)
 - Animal food troughs
+- Vehicle fill units (trailers, harvesters, sprayers, tankers)
 
 Not Supported:
 - Bunker silos (terrain heap-based)
 - Pallets and bales (object storage)
 
-Console Commands:
+Console Commands (Placeables):
 - ascList: Show all storages
 - ascSet <index> <fillType> <capacity>: Set capacity
 - ascReset <index> [fillType]: Reset to original
 
+Console Commands (Vehicles):
+- ascListVehicles: Show all vehicles with fill units
+- ascSetVehicle <index> <fillUnit> <capacity>: Set capacity
+- ascResetVehicle <index> [fillUnit]: Reset to original
+
 Changelog:
+0.3.0.0 (Alpha):
+- Added vehicle capacity adjustment (trailers, harvesters, etc.)
+- Walk near any vehicle with fill units to press K and adjust
+- Console commands for vehicles
+
 0.2.0.0 (Alpha):
 - Added K button to Production and Animals in-game menus
 - Adjust capacity directly from menu without approaching storage
