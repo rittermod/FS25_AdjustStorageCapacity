@@ -7,7 +7,7 @@
     </title>
     <description>
         <en><![CDATA[
-Adjust storage capacities for silos, productions, and animal husbandries.
+Adjust bulk storage capacities for silos, productions, and animal husbandries.
 
 Supports multiplayer with permission system - admins can modify any storage, farm managers can modify their farm's storage.
 
@@ -20,11 +20,12 @@ Features:
 Supported:
 - Silos and warehouses
 - Production storage
-- Husbandry output (milk, manure)
+- Husbandry input/output (straw, water, milk, manure)
 - Animal food troughs
 
 Not Supported:
-- Bunker silos (terrain-based)
+- Bunker silos (terrain heap-based)
+- Pallets and bales (object storage)
 
 Console Commands:
 - ascList: Show all storages

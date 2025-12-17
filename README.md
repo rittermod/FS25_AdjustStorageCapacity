@@ -1,8 +1,12 @@
 # Adjust Storage Capacity
 
-Need more room in your silos? Or want to limit storage to make gameplay more challenging? Adjust Storage Capacity lets you customize the capacity of any storage facility on your farm.
+Need more room in your silos? Or want to limit storage to make gameplay more challenging? Adjust Storage Capacity lets you customize the capacity of any bulk storage facility on your farm.
 
 This mod gives you full control over storage capacities for silos, production facilities, and animal husbandries. Whether you want massive storage for convenience or reduced capacity for a more realistic challenge, you can set any value you want.
+
+Supports multiplayer with a permission system - server admins can modify any storage, while farm managers can adjust their own farm's facilities.
+
+> **Note:** Only bulk storage is supported. No pallets or terrain heap-based storage like bunker silos.
 
 **Alpha Version:** This is an early release. Please report any issues on GitHub.
 
@@ -19,12 +23,13 @@ This mod gives you full control over storage capacities for silos, production fa
 
 - Silos and warehouses (PlaceableSilo)
 - Production point storage (PlaceableProductionPoint)
-- Husbandry output storage - milk, manure, etc. (PlaceableHusbandry)
+- Husbandry input/output storage - straw, water, milk, manure, etc. (PlaceableHusbandry)
 - Animal food troughs (PlaceableHusbandryFood)
 
 ## Limitations
 
 - Bunker silos not supported (terrain heap-based storage has no capacity property)
+- Pallets and bales not supported (object storage)
 
 ## Installation
 
