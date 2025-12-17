@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<l10n>
+    <texts>
+        <!-- Input action display name -->
+        <text name="input_RM_ADJUST_STORAGE_CAPACITY" text="Adjust Storage Capacity"/>
+
+        <!-- Activatable action text -->
+        <text name="rm_asc_action_adjustCapacity" text="Adjust Storage Capacity"/>
+
+        <!-- Error messages -->
+        <text name="rm_asc_error_notAvailable" text="Action not available"/>
+        <text name="rm_asc_error_notOwner" text="You don't own this storage"/>
+        <text name="rm_asc_error_notFound" text="Storage not found"/>
+        <text name="rm_asc_error_notManager" text="You must be farm manager to change capacity"/>
+        <text name="rm_asc_error_invalidCapacity" text="Invalid capacity value"/>
+        <text name="rm_asc_error_noFillTypes" text="No fill types found for this storage"/>
+        <text name="rm_asc_error_unknown" text="An unknown error occurred"/>
+
+        <!-- MP success message -->
+        <text name="rm_asc_mp_success" text="Capacity for %s (%s) set to %d"/>
+
+        <!-- Special fill type names -->
+        <text name="rm_asc_husbandryFood" text="Animal Food (Trough)"/>
+        <text name="rm_asc_sharedCapacity" text="Shared Capacity"/>
+
+        <!-- Status messages -->
+        <text name="rm_asc_status_reset" text="Capacity reset to default"/>
+
+        <!-- Capacity dialog -->
+        <text name="rm_asc_dialog_title" text="Adjust Storage Capacity"/>
+        <text name="rm_asc_dialog_info" text="Fill Type: %s | Current: %d"/>
+        <text name="rm_asc_dialog_ok" text="OK"/>
+        <text name="rm_asc_dialog_cancel" text="Cancel"/>
+        <text name="rm_asc_dialog_close" text="Close"/>
+        <text name="rm_asc_dialog_hint" text="Double-click to edit capacity"/>
+    </texts>
+</l10n>

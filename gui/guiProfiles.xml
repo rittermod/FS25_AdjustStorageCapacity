@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8" standalone="no" ?>
+<GUIProfiles>
+
+    <!-- List container -->
+    <Profile name="rmAscFillTypeList" extends="emptyPanel" with="anchorStretchingYLeft pivotTopLeft">
+    </Profile>
+
+    <!-- List item row -->
+    <Profile name="rmAscFillTypeListItem" extends="baseReference" with="anchorTopStretchingX alternating">
+        <height value="55px"/>
+        <imageColor value="$preset_fs25_colorGrey"/>
+        <imageSelectedColor value="$preset_fs25_colorMainHighlight"/>
+        <alternateBackgroundColor value="$preset_fs25_colorGreyDark_50"/>
+    </Profile>
+
+    <!-- Fill type icon -->
+    <Profile name="rmAscFillTypeIcon" extends="emptyPanel" with="anchorTopLeft">
+        <imageColor value="1 1 1 1"/>
+        <imageSelectedColor value="1 1 1 1"/>
+    </Profile>
+
+    <!-- Fill type name (primary text) -->
+    <Profile name="rmAscFillTypeName" extends="baseReference" with="anchorTopLeft">
+        <textBold value="false"/>
+        <textSize value="18px"/>
+        <textAlignment value="left"/>
+        <textColor value="$preset_fs25_colorMainLight"/>
+        <textSelectedColor value="$preset_fs25_colorMainDark"/>
+    </Profile>
+
+    <!-- Capacity text (secondary text below name) -->
+    <Profile name="rmAscFillTypeCapacity" extends="baseReference" with="anchorTopLeft">
+        <textBold value="false"/>
+        <textSize value="13px"/>
+        <textAlignment value="left"/>
+        <textColor value="$preset_colorWhite_50"/>
+        <textSelectedColor value="$preset_fs25_colorMainDark"/>
+    </Profile>
+
+    <!-- Fill level (right aligned) -->
+    <Profile name="rmAscFillLevel" extends="baseReference" with="anchorStretchingYLeft">
+        <textBold value="true"/>
+        <textSize value="16px"/>
+        <textAlignment value="right"/>
+        <textColor value="$preset_fs25_colorMainHighlight"/>
+        <textSelectedColor value="$preset_fs25_colorMainDark"/>
+    </Profile>
+
+    <!-- Inline capacity input (for editing) -->
+    <Profile name="rmAscCapacityInput" extends="fs25_textInput" with="anchorTopLeft">
+        <textBold value="true"/>
+        <textSize value="16px"/>
+        <textAlignment value="right"/>
+        <textColor value="$preset_fs25_colorMainDark"/>
+        <imageColor value="$preset_fs25_colorMainLight"/>
+    </Profile>
+
+</GUIProfiles>

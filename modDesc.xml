@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<modDesc descVersion="100">
+    <author>Ritter</author>
+    <version>0.1.0.0</version>
+    <title>
+        <en>Adjust Storage Capacity</en>
+    </title>
+    <description>
+        <en><![CDATA[
+Adjust storage capacities for silos, productions, and animal husbandries.
+
+Supports multiplayer with permission system - admins can modify any storage, farm managers can modify their farm's storage.
+
+Features:
+- Press K at any storage to open capacity dialog
+- Edit capacity for each fill type
+- Settings persist across save/load
+- Full multiplayer support
+
+Supported:
+- Silos and warehouses
+- Production storage
+- Husbandry output (milk, manure)
+- Animal food troughs
+
+Not Supported:
+- Bunker silos (terrain-based)
+
+Console Commands:
+- ascList: Show all storages
+- ascSet <index> <fillType> <capacity>: Set capacity
+- ascReset <index> [fillType]: Reset to original
+
+Changelog:
+0.1.0.0:
+- Initial alpha release
+- GUI dialog for viewing and editing storage capacities
+- Inline editing with double-click or Enter
+- Full multiplayer support with permissions
+- Console commands for advanced users
+
+Documentation: https://github.com/rittermod/FS25_AdjustStorageCapacity
+        ]]>        </en>
+    </description>
+
+    <iconFilename>icon_adjustStorageCapacity.dds</iconFilename>
+    <multiplayer supported="true"/>
+
+    <!-- External localization files -->
+    <l10n filenamePrefix="languages/l10n"/>
+
+    <extraSourceFiles>
+        <sourceFile filename="scripts/main.lua"/>
+    </extraSourceFiles>
+
+    <actions>
+        <action name="RM_ADJUST_STORAGE_CAPACITY"/>
+    </actions>
+
+    <inputBinding>
+        <actionBinding action="RM_ADJUST_STORAGE_CAPACITY">
+            <binding device="KB_MOUSE_DEFAULT" input="KEY_k"/>
+        </actionBinding>
+    </inputBinding>
+</modDesc>
