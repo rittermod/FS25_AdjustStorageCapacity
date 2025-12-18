@@ -18,7 +18,6 @@ RmVehicleDetectionHandler.initialized = false
 RmVehicleDetectionHandler.isActive = false
 RmVehicleDetectionHandler.nearbyVehicles = {}       -- {[vehicle] = timestamp}
 RmVehicleDetectionHandler.currentVehicle = nil      -- Vehicle currently showing keybind for
-RmVehicleDetectionHandler.actionEventId = nil       -- Input action event ID
 RmVehicleDetectionHandler.lastCleanupTime = 0
 RmVehicleDetectionHandler.loggedVehicles = {}       -- {[vehicle] = true} - tracks which vehicles we've logged
 
@@ -273,7 +272,8 @@ function RmVehicleDetectionHandler.cleanupStaleVehicles()
             RmVehicleDetectionHandler.nearbyVehicles[vehicle] = nil
             RmVehicleDetectionHandler.loggedVehicles[vehicle] = nil  -- Clear from debug log cache
             if RmVehicleDetectionHandler.currentVehicle == vehicle then
-                RmVehicleDetectionHandler.hideKeybind()
+                -- Unregister via central manager before clearing currentVehicle
+                RmAdjustStorageCapacity:unregisterKeybind("vehicle", vehicle)
                 RmVehicleDetectionHandler.currentVehicle = nil
             end
         end
@@ -288,6 +288,7 @@ function RmVehicleDetectionHandler.cleanupStaleVehicles()
 end
 
 --- Show the K keybind for adjusting vehicle capacity
+--- Uses central keybind manager (vehicle has lower priority than placeable)
 ---@param vehicle table The vehicle
 function RmVehicleDetectionHandler.showKeybind(vehicle)
     -- Check permission first
@@ -297,65 +298,15 @@ function RmVehicleDetectionHandler.showKeybind(vehicle)
         return
     end
 
-    -- Don't register if already registered
-    if RmVehicleDetectionHandler.actionEventId ~= nil then
-        return
-    end
-
-    -- Register the K keybind
-    local _, actionEventId = g_inputBinding:registerActionEvent(
-        InputAction.RM_ADJUST_STORAGE_CAPACITY,
-        RmVehicleDetectionHandler,
-        RmVehicleDetectionHandler.onAdjustCapacityAction,
-        false, -- triggerUp
-        true,  -- triggerDown
-        false, -- triggerAlways
-        true   -- isActive
-    )
-
-    if actionEventId ~= nil then
-        g_inputBinding:setActionEventText(actionEventId, g_i18n:getText("rm_asc_action_adjustVehicleCapacity"))
-        g_inputBinding:setActionEventTextPriority(actionEventId, GS_PRIO_HIGH)
-        g_inputBinding:setActionEventTextVisibility(actionEventId, true)
-
-        RmVehicleDetectionHandler.actionEventId = actionEventId
-        Log:debug("Registered K keybind for %s", vehicle:getName())
-    else
-        Log:warning("Failed to register K keybind")
-    end
+    -- Register via central keybind manager (vehicle has lower priority)
+    RmAdjustStorageCapacity:registerKeybind("vehicle", vehicle, "rm_asc_action_adjustVehicleCapacity")
 end
 
 --- Hide the K keybind
+--- Uses central keybind manager
 function RmVehicleDetectionHandler.hideKeybind()
-    if RmVehicleDetectionHandler.actionEventId ~= nil then
-        g_inputBinding:removeActionEvent(RmVehicleDetectionHandler.actionEventId)
-        RmVehicleDetectionHandler.actionEventId = nil
-        local vehicleName = RmVehicleDetectionHandler.currentVehicle and RmVehicleDetectionHandler.currentVehicle:getName() or "unknown"
-        Log:debug("Unregistered K keybind for %s", vehicleName)
-    end
-end
-
---- Handle K key press to open capacity dialog
----@param actionName string The action name
----@param inputValue number The input value
-function RmVehicleDetectionHandler.onAdjustCapacityAction(actionName, inputValue)
     local vehicle = RmVehicleDetectionHandler.currentVehicle
-
-    if vehicle == nil then
-        Log:warning("K pressed but no current vehicle")
-        return
+    if vehicle ~= nil then
+        RmAdjustStorageCapacity:unregisterKeybind("vehicle", vehicle)
     end
-
-    Log:debug("K pressed for %s", vehicle:getName())
-
-    -- Check permission
-    local canModify, errorKey = RmAdjustStorageCapacity:canModifyVehicleCapacity(vehicle)
-    if not canModify then
-        g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
-            g_i18n:getText(errorKey))
-        return
-    end
-
-    -- Show dialog
-    RmVehicleCapacityDialog.show(vehicle)
 end

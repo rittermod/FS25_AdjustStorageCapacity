@@ -1,26 +1,27 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="100">
     <author>Ritter</author>
-    <version>0.3.0.0</version>
+    <version>0.3.1.0</version>
     <title>
         <en>Adjust Storage Capacity</en>
     </title>
     <description>
         <en><![CDATA[
-Adjust storage capacities for silos, productions, husbandries, and vehicles.
+Need more room in your silos or trailers? Or want to limit storage to make gameplay more challenging?
 
-Supports multiplayer with permission system - admins can modify any storage, farm managers can modify their farm's storage.
+Adjust Storage Capacity lets you customize storage capacities for silos, production facilities, animal husbandries, and vehicles. Whether you want massive storage for convenience or reduced capacity for a realistic challenge, you can set any value without editing XML files.
+
+Supports multiplayer with permission system - admins can modify any storage, farm managers can modify their own farm's storage.
 
 Features:
-- Press K at any storage or vehicle to open capacity dialog
+- Press K near any supported storage or vehicle to open capacity dialog
 - Press K in Production or Animals menu to adjust selected facility
-- Walk near vehicles (trailers, harvesters, tankers) to adjust fill unit capacities
-- Edit capacity for each fill type
-- Settings persist across save/load
-- Full multiplayer support
+- Edit capacity for each fill type or fill unit
+- Configurable key binding for opening dialogs
+- Multiplayer support with permissions
 
 Supported:
-- Silos and warehouses
+- Silos, tanks, warehouses
 - Production storage
 - Husbandry input/output (straw, water, milk, manure)
 - Animal food troughs
@@ -32,17 +33,12 @@ Not Supported:
 - Vehicle pallets and big bags (products, not containers)
 - Leveler fill units (internal buffers)
 
-Console Commands (Placeables):
-- ascList: Show all storages
-- ascSet <index> <fillType> <capacity>: Set capacity
-- ascReset <index> [fillType]: Reset to original
-
-Console Commands (Vehicles):
-- ascListVehicles: Show all vehicles with fill units
-- ascSetVehicle <index> <fillUnit> <capacity>: Set capacity
-- ascResetVehicle <index> [fillUnit]: Reset to original
+Console commands available.
 
 Changelog:
+0.3.1.0 (Alpha):
+- Fixed K keybind conflict when near both placeable and vehicle
+
 0.3.0.0 (Alpha):
 - Added vehicle capacity adjustment (trailers, harvesters, etc.)
 - Walk near any vehicle with fill units to press K and adjust

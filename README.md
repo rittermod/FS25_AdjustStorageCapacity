@@ -1,25 +1,25 @@
 # Adjust Storage Capacity
 
-Need more room in your silos or trailers? Or want to limit storage to make gameplay more challenging? Adjust Storage Capacity lets you customize the capacity of any storage facility or vehicle on your farm.
+Need more room in your silos or trailers? Or want to limit storage to make gameplay more challenging? Adjust Storage Capacity lets you customize the capacity of storage facilities and vehicles on your farm.
 
-This mod gives you full control over storage capacities for silos, production facilities, animal husbandries, and vehicles. Whether you want massive storage for convenience or reduced capacity for a more realistic challenge, you can set any value you want.
+This mod gives you control over storage capacities for silos, production facilities, animal husbandries, and vehicles. Whether you want massive storage for convenience or reduced capacity for a more realistic challenge, you can set any value you want to bulk storages without editing XML files and mods.
 
 Supports multiplayer with a permission system - server admins can modify any storage or vehicle, while farm managers can adjust their own farm's facilities and vehicles.
 
 > **Note:** Only bulk storage is supported. No pallets, big bags, or terrain heap-based storage like bunker silos.
 
-**Alpha Version:** This is an early release. Please report any issues on GitHub.
+**Alpha Version:** This is an early release. Please report any issues on GitHub or Discord.
 
 ## Features
 
-- **Easy capacity dialog:** Press K at any storage or vehicle to open the settings
+- **Easy capacity dialog:** Press K near any storage or vehicle to open the settings
 - **In-game menu integration:** Press K in the Production or Animals menu to adjust the selected facility
 - **Vehicle support:** Walk near any vehicle with fill units to adjust capacities
 - **Per-filltype editing:** Adjust capacity for each fill type or fill unit individually
 - **Inline text input:** Double-click or press Enter on a row to edit
-- **Persistent settings:** Changes save with your game
-- **Full multiplayer support:** Permission system for server admins and farm managers
-- **Console commands:** Separate commands for placeables and vehicles
+- **Configurable key binding:** Change the default K key in game settings
+- **Multiplayer support:** Permission system for server admins and farm managers
+- **Console commands:** Available for advanced users
 
 ## Supported Storage Types
 
@@ -136,6 +136,10 @@ The mod supports multiplayer with a permission system:
 - **Platform**: PC (Windows/macOS)
 
 ## Changelog
+
+### 0.3.1.0 (Alpha)
+
+- Fixed K keybind conflict when standing near both a placeable and vehicle
 
 ### 0.3.0.0 (Alpha)
 

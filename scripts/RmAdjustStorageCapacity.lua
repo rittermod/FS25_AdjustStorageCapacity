@@ -31,6 +31,19 @@ RmAdjustStorageCapacity.originalCapacities = {}
 -- Key = uniqueId, Value = {[fillUnitIndex] = capacity}
 RmAdjustStorageCapacity.vehicleCapacities = {}
 
+-- ============================================================================
+-- Central Keybind Management
+-- ============================================================================
+-- Manages a single K keybind registration to prevent conflicts between
+-- placeable and vehicle handlers. Both systems call this central manager.
+
+RmAdjustStorageCapacity.keybind = {
+    actionEventId = nil,    -- Current action event ID
+    currentTarget = nil,    -- {type="placeable"|"vehicle", object=table}
+    PRIORITY_PLACEABLE = 2, -- Higher priority (explicit info trigger)
+    PRIORITY_VEHICLE = 1    -- Lower priority (proximity detection)
+}
+
 -- Console error messages (hardcoded English - console is developer-facing)
 local CONSOLE_ERRORS = {
     rm_asc_error_notOwner = "You don't own this storage",
@@ -42,7 +55,7 @@ local CONSOLE_ERRORS = {
 
 -- Get logger for this module (prefix auto-generated with context suffix)
 local Log = RmLogging.getLogger("AdjustStorageCapacity")
-Log:setLevel(RmLogging.LOG_LEVEL.DEBUG) -- TODO: Change to INFO for release
+-- Log:setLevel(RmLogging.LOG_LEVEL.DEBUG) -- TODO: Change to INFO for release
 
 -- ============================================================================
 -- Storage Enumeration and Type Detection
@@ -223,8 +236,10 @@ function RmAdjustStorageCapacity:loadMap()
 
     -- Register console commands for vehicles
     addConsoleCommand("ascListVehicles", "Lists all vehicles with fill units", "consoleCommandListVehicles", self)
-    addConsoleCommand("ascSetVehicle", "Sets vehicle capacity: ascSetVehicle <index> <fillUnit> <capacity>", "consoleCommandSetVehicle", self)
-    addConsoleCommand("ascResetVehicle", "Resets vehicle capacity: ascResetVehicle <index> [fillUnit]", "consoleCommandResetVehicle", self)
+    addConsoleCommand("ascSetVehicle", "Sets vehicle capacity: ascSetVehicle <index> <fillUnit> <capacity>",
+        "consoleCommandSetVehicle", self)
+    addConsoleCommand("ascResetVehicle", "Resets vehicle capacity: ascResetVehicle <index> [fillUnit]",
+        "consoleCommandResetVehicle", self)
 end
 
 --- Called when mission starts (via hook) - placeables are populated at this point
@@ -1266,6 +1281,161 @@ function RmAdjustStorageCapacity:showCapacityDialog(placeable)
 end
 
 -- ============================================================================
+-- Central Keybind Management Functions
+-- ============================================================================
+
+--- Register the K keybind for a target (placeable or vehicle)
+--- Only one registration can be active at a time. Higher priority wins.
+---@param targetType string "placeable" or "vehicle"
+---@param targetObject table The placeable or vehicle object
+---@param textKey string The localization key for the keybind text
+---@return boolean success Whether the registration was successful
+function RmAdjustStorageCapacity:registerKeybind(targetType, targetObject, textKey)
+    local kb = self.keybind
+    local newPriority = targetType == "placeable" and kb.PRIORITY_PLACEABLE or kb.PRIORITY_VEHICLE
+
+    -- If we already have a target, check priority
+    if kb.currentTarget ~= nil then
+        local currentPriority = kb.currentTarget.type == "placeable" and kb.PRIORITY_PLACEABLE or kb.PRIORITY_VEHICLE
+
+        -- If current has higher or equal priority, don't replace
+        if currentPriority >= newPriority then
+            Log:debug("Keybind registration blocked: current %s (priority %d) >= new %s (priority %d)",
+                kb.currentTarget.type, currentPriority, targetType, newPriority)
+            return false
+        end
+
+        -- Higher priority - unregister current first
+        Log:debug("Keybind takeover: %s (priority %d) replacing %s (priority %d)",
+            targetType, newPriority, kb.currentTarget.type, currentPriority)
+        self:unregisterKeybindInternal()
+    end
+
+    -- Register the action event
+    local _, actionEventId = g_inputBinding:registerActionEvent(
+        InputAction.RM_ADJUST_STORAGE_CAPACITY,
+        self,
+        RmAdjustStorageCapacity.onKeybindPressed,
+        false, -- triggerUp
+        true,  -- triggerDown
+        false, -- triggerAlways
+        true   -- isActive
+    )
+
+    if actionEventId == nil then
+        Log:warning("Failed to register K keybind for %s", targetType)
+        return false
+    end
+
+    g_inputBinding:setActionEventText(actionEventId, g_i18n:getText(textKey))
+    g_inputBinding:setActionEventTextPriority(actionEventId, GS_PRIO_HIGH)
+    g_inputBinding:setActionEventTextVisibility(actionEventId, true)
+
+    kb.actionEventId = actionEventId
+    kb.currentTarget = {
+        type = targetType,
+        object = targetObject
+    }
+
+    local name = targetObject.getName and targetObject:getName() or "unknown"
+    Log:debug("Registered K keybind for %s: %s", targetType, name)
+    return true
+end
+
+--- Unregister the K keybind for a specific target
+--- Only unregisters if the target matches the current registration
+---@param targetType string "placeable" or "vehicle"
+---@param targetObject table The placeable or vehicle object
+function RmAdjustStorageCapacity:unregisterKeybind(targetType, targetObject)
+    local kb = self.keybind
+
+    -- Only unregister if this target is the current one
+    if kb.currentTarget == nil then
+        return
+    end
+
+    if kb.currentTarget.type ~= targetType or kb.currentTarget.object ~= targetObject then
+        Log:debug("Keybind unregister skipped: current=%s, requested=%s",
+            kb.currentTarget.type, targetType)
+        return
+    end
+
+    local name = targetObject.getName and targetObject:getName() or "unknown"
+    self:unregisterKeybindInternal()
+    Log:debug("Unregistered K keybind for %s: %s", targetType, name)
+end
+
+--- Internal function to unregister the keybind (no target check)
+function RmAdjustStorageCapacity:unregisterKeybindInternal()
+    local kb = self.keybind
+
+    if kb.actionEventId ~= nil then
+        g_inputBinding:removeActionEvent(kb.actionEventId)
+        kb.actionEventId = nil
+    end
+
+    kb.currentTarget = nil
+end
+
+--- Handle K key press - dispatches to appropriate dialog
+---@param actionName string The action name
+---@param inputValue number The input value
+function RmAdjustStorageCapacity:onKeybindPressed(actionName, inputValue)
+    local kb = self.keybind
+
+    if kb.currentTarget == nil then
+        Log:warning("K pressed but no current target")
+        return
+    end
+
+    local targetType = kb.currentTarget.type
+    local targetObject = kb.currentTarget.object
+
+    if targetObject == nil then
+        Log:warning("K pressed but target object is nil")
+        return
+    end
+
+    local name = targetObject.getName and targetObject:getName() or "unknown"
+    Log:debug("K pressed for %s: %s", targetType, name)
+
+    if targetType == "placeable" then
+        -- Check permission
+        local canModify, errorKey = self:canModifyCapacity(targetObject)
+        if not canModify then
+            g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
+                g_i18n:getText(errorKey))
+            return
+        end
+
+        -- Show placeable dialog
+        RmStorageCapacityDialog.show(targetObject)
+    elseif targetType == "vehicle" then
+        -- Check permission
+        local canModify, errorKey = self:canModifyVehicleCapacity(targetObject)
+        if not canModify then
+            g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
+                g_i18n:getText(errorKey))
+            return
+        end
+
+        -- Show vehicle dialog
+        RmVehicleCapacityDialog.show(targetObject)
+    end
+end
+
+--- Check if a specific target currently has the keybind registered
+---@param targetType string "placeable" or "vehicle"
+---@param targetObject table The placeable or vehicle object
+---@return boolean hasKeybind Whether this target has the keybind
+function RmAdjustStorageCapacity:hasKeybind(targetType, targetObject)
+    local kb = self.keybind
+    return kb.currentTarget ~= nil
+        and kb.currentTarget.type == targetType
+        and kb.currentTarget.object == targetObject
+end
+
+-- ============================================================================
 -- Console Commands
 -- ============================================================================
 
@@ -1541,7 +1711,7 @@ function RmAdjustStorageCapacity:consoleCommandListVehicles()
                             -- Truncate if too many
                             if #supportedNames > 10 then
                                 local count = #supportedNames
-                                supportedNames = {table.unpack(supportedNames, 1, 10)}
+                                supportedNames = { table.unpack(supportedNames, 1, 10) }
                                 table.insert(supportedNames, string.format("... +%d more", count - 10))
                             end
                             Log:info(string.format("      Supports: %s", table.concat(supportedNames, ", ")))
@@ -1552,7 +1722,8 @@ function RmAdjustStorageCapacity:consoleCommandListVehicles()
         end
     end
 
-    return string.format("Listed %d vehicle(s). Use 'ascSetVehicle <index> <fillUnit> <capacity>' to set capacity.", #vehicles)
+    return string.format("Listed %d vehicle(s). Use 'ascSetVehicle <index> <fillUnit> <capacity>' to set capacity.",
+        #vehicles)
 end
 
 --- Console command: Set vehicle capacity
@@ -1670,6 +1841,9 @@ end
 --- Called when map is about to unload
 function RmAdjustStorageCapacity:deleteMap()
     Log:debug("Mod unloading")
+
+    -- Clear keybind registration
+    self:unregisterKeybindInternal()
 
     -- Remove placeable console commands
     removeConsoleCommand("ascList")

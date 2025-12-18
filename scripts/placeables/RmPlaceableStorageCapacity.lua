@@ -59,7 +59,6 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
     end
 
     spec.storageTypes = {} -- Which storage types this placeable has
-    spec.capacityActionEventId = nil -- Input action event ID for K keybind
 
     Log:debug("onLoad: %s", self:getName())
 end
@@ -112,7 +111,7 @@ function RmPlaceableStorageCapacity:detectStorageTypes()
 end
 
 --- Called when player enters the info trigger area
---- Register our K keybind for capacity adjustment
+--- Register K keybind via central manager
 ---@param otherId number The player/entity node that entered
 function RmPlaceableStorageCapacity:onInfoTriggerEnter(otherId)
     local spec = self[RmPlaceableStorageCapacity.SPEC_TABLE_NAME]
@@ -131,37 +130,12 @@ function RmPlaceableStorageCapacity:onInfoTriggerEnter(otherId)
         return  -- Don't show K for unauthorized players
     end
 
-    -- Don't register if already registered
-    if spec.capacityActionEventId ~= nil then
-        return
-    end
-
-    -- Register our K keybind
-    local _, actionEventId = g_inputBinding:registerActionEvent(
-        InputAction.RM_ADJUST_STORAGE_CAPACITY,
-        self,
-        RmPlaceableStorageCapacity.actionEventAdjustCapacity,
-        false, -- triggerUp
-        true,  -- triggerDown
-        false, -- triggerAlways
-        true   -- isActive
-    )
-
-    if actionEventId ~= nil then
-        g_inputBinding:setActionEventText(actionEventId, g_i18n:getText("rm_asc_action_adjustCapacity"))
-        g_inputBinding:setActionEventTextPriority(actionEventId, GS_PRIO_HIGH)
-        g_inputBinding:setActionEventTextVisibility(actionEventId, true)
-
-        spec.capacityActionEventId = actionEventId
-
-        Log:debug("Registered K keybind for %s", self:getName())
-    else
-        Log:warning("Failed to register K keybind for %s", self:getName())
-    end
+    -- Register via central keybind manager (placeable has higher priority)
+    RmAdjustStorageCapacity:registerKeybind("placeable", self, "rm_asc_action_adjustCapacity")
 end
 
 --- Called when player leaves the info trigger area
---- Unregister our K keybind
+--- Unregister K keybind via central manager
 ---@param otherId number The player/entity node that left
 function RmPlaceableStorageCapacity:onInfoTriggerLeave(otherId)
     local spec = self[RmPlaceableStorageCapacity.SPEC_TABLE_NAME]
@@ -169,44 +143,14 @@ function RmPlaceableStorageCapacity:onInfoTriggerLeave(otherId)
         return
     end
 
-    -- Remove our K keybind if registered
-    if spec.capacityActionEventId ~= nil then
-        g_inputBinding:removeActionEvent(spec.capacityActionEventId)
-        spec.capacityActionEventId = nil
-
-        Log:debug("Unregistered K keybind for %s", self:getName())
-    end
-end
-
---- Handle K key press to open capacity dialog
----@param actionName string The action name
----@param inputValue number The input value
----@param callbackState any Callback state
----@param isAnalog boolean Whether input is analog
-function RmPlaceableStorageCapacity:actionEventAdjustCapacity(actionName, inputValue, callbackState, isAnalog)
-    Log:debug("K pressed for %s", self:getName())
-
-    -- Check permission
-    local canModify, errorKey = RmAdjustStorageCapacity:canModifyCapacity(self)
-    if not canModify then
-        g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
-            g_i18n:getText(errorKey))
-        return
-    end
-
-    -- Show capacity dialog
-    RmAdjustStorageCapacity:showCapacityDialog(self)
+    -- Unregister via central keybind manager
+    RmAdjustStorageCapacity:unregisterKeybind("placeable", self)
 end
 
 --- Called when placeable is deleted/sold - clean up data
 function RmPlaceableStorageCapacity:onDelete()
-    local spec = self[RmPlaceableStorageCapacity.SPEC_TABLE_NAME]
-
-    -- Clean up any active action event
-    if spec ~= nil and spec.capacityActionEventId ~= nil then
-        g_inputBinding:removeActionEvent(spec.capacityActionEventId)
-        spec.capacityActionEventId = nil
-    end
+    -- Clean up keybind via central manager
+    RmAdjustStorageCapacity:unregisterKeybind("placeable", self)
 
     local uniqueId = self.uniqueId
 
