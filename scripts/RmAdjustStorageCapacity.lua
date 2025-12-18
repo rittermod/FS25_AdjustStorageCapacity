@@ -964,7 +964,6 @@ end
 ---@return table Array of vehicles with fill units
 function RmAdjustStorageCapacity:getAllVehiclesWithFillUnits()
     local vehicles = {}
-    local specTableName = RmVehicleStorageCapacity.SPEC_TABLE_NAME
 
     -- FS25 stores vehicles in vehicleSystem.vehicles, not g_currentMission.vehicles
     local vehicleList = {}
@@ -975,16 +974,17 @@ function RmAdjustStorageCapacity:getAllVehiclesWithFillUnits()
     local totalVehicles = 0
     for _, vehicle in pairs(vehicleList) do
         totalVehicles = totalVehicles + 1
-        local spec = vehicle[specTableName]
-        if spec ~= nil then
-            local fillUnitSpec = vehicle.spec_fillUnit
-            if fillUnitSpec ~= nil and fillUnitSpec.fillUnits ~= nil and #fillUnitSpec.fillUnits > 0 then
-                table.insert(vehicles, vehicle)
-            end
+
+        -- Use central eligibility check
+        local isSupported, reason = RmVehicleStorageCapacity.isVehicleSupported(vehicle)
+        if isSupported then
+            table.insert(vehicles, vehicle)
+        else
+            Log:trace("Skipping vehicle (%s): %s", reason, vehicle:getName() or "unknown")
         end
     end
 
-    Log:debug("getAllVehiclesWithFillUnits: Checked %d vehicles, found %d with our spec and fill units",
+    Log:debug("getAllVehiclesWithFillUnits: Checked %d vehicles, found %d supported",
         totalVehicles, #vehicles)
 
     return vehicles
@@ -1475,35 +1475,79 @@ function RmAdjustStorageCapacity:consoleCommandListVehicles()
         -- Show fill units
         local fillUnitSpec = vehicle.spec_fillUnit
         if fillUnitSpec ~= nil and fillUnitSpec.fillUnits ~= nil then
-            for j, fillUnit in ipairs(fillUnitSpec.fillUnits) do
-                -- Get fill type info and display name
-                local ftName = "EMPTY"
-                local displayName = string.format("Tank %d", j)
-                if fillUnit.fillType ~= nil and fillUnit.fillType ~= FillType.UNKNOWN then
-                    local ftData = g_fillTypeManager:getFillTypeByIndex(fillUnit.fillType)
-                    if ftData ~= nil then
-                        ftName = ftData.name or "UNKNOWN"
-                        -- Use fill type title as display name (properly localized)
-                        if ftData.title ~= nil and ftData.title ~= "" then
-                            displayName = ftData.title
+            -- Build set of fill unit indexes used by Leveler specialization (internal mechanics)
+            local levelerFillUnits = {}
+            local levelerSpec = vehicle.spec_leveler
+            if levelerSpec ~= nil then
+                if levelerSpec.fillUnitIndex ~= nil then
+                    levelerFillUnits[levelerSpec.fillUnitIndex] = true
+                end
+                if levelerSpec.nodes ~= nil then
+                    for _, node in pairs(levelerSpec.nodes) do
+                        if node.fillUnitIndex ~= nil then
+                            levelerFillUnits[node.fillUnitIndex] = true
                         end
                     end
+                end
+            end
+
+            for j, fillUnit in ipairs(fillUnitSpec.fillUnits) do
+                -- Skip leveler fill units - internal buffers for bunker silo leveling
+                if levelerFillUnits[j] then
+                    Log:debug("    - [%d] (leveler buffer - skipped, capacity=%d L)", j, fillUnit.capacity)
                 else
-                    -- Empty container - check if it's multi-purpose storage
-                    if fillUnit.supportedFillTypes ~= nil and next(fillUnit.supportedFillTypes) ~= nil then
-                        displayName = "Storage"
+                    -- Get fill type info and display name
+                    local ftName = "EMPTY"
+                    local displayName = string.format("Tank %d", j)
+                    if fillUnit.fillType ~= nil and fillUnit.fillType ~= FillType.UNKNOWN then
+                        local ftData = g_fillTypeManager:getFillTypeByIndex(fillUnit.fillType)
+                        if ftData ~= nil then
+                            ftName = ftData.name or "UNKNOWN"
+                            -- Use fill type title as display name (properly localized)
+                            if ftData.title ~= nil and ftData.title ~= "" then
+                                displayName = ftData.title
+                            end
+                        end
+                    else
+                        -- Empty container - check if it's multi-purpose storage
+                        if fillUnit.supportedFillTypes ~= nil and next(fillUnit.supportedFillTypes) ~= nil then
+                            displayName = "Storage"
+                        end
+                    end
+
+                    -- Check for custom capacity
+                    local customMark = ""
+                    local customCaps = self.vehicleCapacities[uniqueId]
+                    if customCaps ~= nil and customCaps[j] ~= nil then
+                        customMark = " *"
+                    end
+
+                    Log:info(string.format("    - [%d] %s: %d / %d L (%s)%s",
+                        j, displayName, math.floor(fillUnit.fillLevel), fillUnit.capacity, ftName, customMark))
+
+                    -- Show supported fill types (for debugging multi-fill-unit vehicles)
+                    if fillUnit.supportedFillTypes ~= nil then
+                        local supportedNames = {}
+                        for ftIndex, isSupported in pairs(fillUnit.supportedFillTypes) do
+                            if isSupported then
+                                local ftData = g_fillTypeManager:getFillTypeByIndex(ftIndex)
+                                if ftData ~= nil then
+                                    table.insert(supportedNames, ftData.name or "?")
+                                end
+                            end
+                        end
+                        if #supportedNames > 0 then
+                            table.sort(supportedNames)
+                            -- Truncate if too many
+                            if #supportedNames > 10 then
+                                local count = #supportedNames
+                                supportedNames = {table.unpack(supportedNames, 1, 10)}
+                                table.insert(supportedNames, string.format("... +%d more", count - 10))
+                            end
+                            Log:info(string.format("      Supports: %s", table.concat(supportedNames, ", ")))
+                        end
                     end
                 end
-
-                -- Check for custom capacity
-                local customMark = ""
-                local customCaps = self.vehicleCapacities[uniqueId]
-                if customCaps ~= nil and customCaps[j] ~= nil then
-                    customMark = " *"
-                end
-
-                Log:info(string.format("    - [%d] %s: %d / %d L (%s)%s",
-                    j, displayName, math.floor(fillUnit.fillLevel), fillUnit.capacity, ftName, customMark))
             end
         end
     end

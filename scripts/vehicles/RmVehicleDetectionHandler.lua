@@ -20,6 +20,7 @@ RmVehicleDetectionHandler.nearbyVehicles = {}       -- {[vehicle] = timestamp}
 RmVehicleDetectionHandler.currentVehicle = nil      -- Vehicle currently showing keybind for
 RmVehicleDetectionHandler.actionEventId = nil       -- Input action event ID
 RmVehicleDetectionHandler.lastCleanupTime = 0
+RmVehicleDetectionHandler.loggedVehicles = {}       -- {[vehicle] = true} - tracks which vehicles we've logged
 
 --- Initialize the detection handler
 function RmVehicleDetectionHandler.init()
@@ -91,6 +92,7 @@ function RmVehicleDetectionHandler.stopDetection()
     -- Clear tracked vehicles
     RmVehicleDetectionHandler.nearbyVehicles = {}
     RmVehicleDetectionHandler.currentVehicle = nil
+    RmVehicleDetectionHandler.loggedVehicles = {}  -- Clear debug log cache
 
     -- Unregister from update
     if g_currentMission ~= nil then
@@ -164,32 +166,81 @@ function RmVehicleDetectionHandler:update(dt)
     end
 end
 
+--- Get a list of specialization names for a vehicle (for debug logging)
+---@param vehicle table The vehicle to inspect
+---@return string specList Comma-separated list of specialization short names
+function RmVehicleDetectionHandler.getVehicleSpecializations(vehicle)
+    local specs = {}
+
+    -- Method 1: Check spec_* tables on the vehicle
+    for key, _ in pairs(vehicle) do
+        if type(key) == "string" and key:sub(1, 5) == "spec_" then
+            -- Extract short name: "spec_fillUnit" -> "fillUnit"
+            local shortName = key:sub(6)
+            -- Skip our mod's spec prefix for cleaner output
+            if not shortName:find("^FS25_") then
+                table.insert(specs, shortName)
+            else
+                -- Extract just the spec name after mod prefix: "FS25_ModName.specName" -> "specName"
+                local dotPos = shortName:find("%.")
+                if dotPos then
+                    table.insert(specs, shortName:sub(dotPos + 1))
+                end
+            end
+        end
+    end
+
+    table.sort(specs)
+    return table.concat(specs, ", ")
+end
+
+--- Get the vehicle type name for debug logging
+---@param vehicle table The vehicle to inspect
+---@return string typeName The vehicle type name
+function RmVehicleDetectionHandler.getVehicleTypeName(vehicle)
+    if vehicle.typeName then
+        return vehicle.typeName
+    end
+    if vehicle.typeDesc and vehicle.typeDesc.name then
+        return vehicle.typeDesc.name
+    end
+    return "unknown"
+end
+
 --- Check if a vehicle can be handled (has FillUnit with fill units and our specialization)
 ---@param vehicle table|nil The vehicle to check
 ---@return boolean canHandle True if vehicle can be handled
 function RmVehicleDetectionHandler.canHandleVehicle(vehicle)
-    if vehicle == nil then
-        return false
+    -- Use central eligibility check
+    local isSupported, reason = RmVehicleStorageCapacity.isVehicleSupported(vehicle)
+
+    -- Debug log: Only log each vehicle once to avoid spam
+    local shouldLog = vehicle ~= nil and not RmVehicleDetectionHandler.loggedVehicles[vehicle]
+    if shouldLog then
+        RmVehicleDetectionHandler.loggedVehicles[vehicle] = true
+
+        local fillUnitCount = 0
+        if vehicle.spec_fillUnit and vehicle.spec_fillUnit.fillUnits then
+            fillUnitCount = #vehicle.spec_fillUnit.fillUnits
+        end
+
+        if isSupported then
+            Log:debug("Vehicle ACCEPTED: name=%s, type=%s, fillUnits=%d, specs=[%s]",
+                vehicle:getName(),
+                RmVehicleDetectionHandler.getVehicleTypeName(vehicle),
+                fillUnitCount,
+                RmVehicleDetectionHandler.getVehicleSpecializations(vehicle))
+        else
+            Log:debug("Vehicle SKIPPED (%s): name=%s, type=%s, fillUnits=%d, specs=[%s]",
+                reason,
+                vehicle:getName(),
+                RmVehicleDetectionHandler.getVehicleTypeName(vehicle),
+                fillUnitCount,
+                RmVehicleDetectionHandler.getVehicleSpecializations(vehicle))
+        end
     end
 
-    -- Must be a Vehicle
-    if vehicle.isa == nil or not vehicle:isa(Vehicle) then
-        return false
-    end
-
-    -- Must have FillUnit specialization with fill units
-    local fillUnitSpec = vehicle.spec_fillUnit
-    if fillUnitSpec == nil or fillUnitSpec.fillUnits == nil or #fillUnitSpec.fillUnits == 0 then
-        return false
-    end
-
-    -- Must have our specialization
-    local spec = vehicle[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
-    if spec == nil then
-        return false
-    end
-
-    return true
+    return isSupported
 end
 
 --- Called when a vehicle enters detection range
@@ -220,10 +271,18 @@ function RmVehicleDetectionHandler.cleanupStaleVehicles()
         -- Remove if vehicle is deleted
         if vehicle == nil or vehicle.rootNode == nil or not entityExists(vehicle.rootNode) then
             RmVehicleDetectionHandler.nearbyVehicles[vehicle] = nil
+            RmVehicleDetectionHandler.loggedVehicles[vehicle] = nil  -- Clear from debug log cache
             if RmVehicleDetectionHandler.currentVehicle == vehicle then
                 RmVehicleDetectionHandler.hideKeybind()
                 RmVehicleDetectionHandler.currentVehicle = nil
             end
+        end
+    end
+
+    -- Also clean up logged vehicles cache for deleted vehicles
+    for vehicle, _ in pairs(RmVehicleDetectionHandler.loggedVehicles) do
+        if vehicle == nil or vehicle.rootNode == nil or not entityExists(vehicle.rootNode) then
+            RmVehicleDetectionHandler.loggedVehicles[vehicle] = nil
         end
     end
 end

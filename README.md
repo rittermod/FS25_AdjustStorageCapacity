@@ -6,7 +6,7 @@ This mod gives you full control over storage capacities for silos, production fa
 
 Supports multiplayer with a permission system - server admins can modify any storage or vehicle, while farm managers can adjust their own farm's facilities and vehicles.
 
-> **Note:** Only bulk storage is supported. No pallets or terrain heap-based storage like bunker silos.
+> **Note:** Only bulk storage is supported. No pallets, big bags, or terrain heap-based storage like bunker silos.
 
 **Alpha Version:** This is an early release. Please report any issues on GitHub.
 
@@ -34,12 +34,17 @@ Supports multiplayer with a permission system - server admins can modify any sto
 - Harvesters (grain tanks)
 - Sprayers and spreaders
 - Tankers (slurry, water, milk)
-- Any vehicle with fill units
+- Any vehicle with bulk fill units
 
 ## Limitations
 
+**Placeables:**
 - Bunker silos not supported (terrain heap-based storage has no capacity property)
-- Pallets and bales not supported (object storage)
+- Pallets and bales not supported (object storage, not bulk storage)
+
+**Vehicles:**
+- Pallets and big bags not supported (products being transported, not containers)
+- Leveler fill units excluded (internal buffers for bunker silo mechanics)
 
 ## Installation
 

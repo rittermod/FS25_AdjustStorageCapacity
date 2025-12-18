@@ -29,6 +29,8 @@ Supported:
 Not Supported:
 - Bunker silos (terrain heap-based)
 - Pallets and bales (object storage)
+- Vehicle pallets and big bags (products, not containers)
+- Leveler fill units (internal buffers)
 
 Console Commands (Placeables):
 - ascList: Show all storages

@@ -16,6 +16,54 @@ RmVehicleStorageCapacity.SPEC_NAME = string.format("%s.rmVehicleStorageCapacity"
 -- Spec table name on vehicle: "spec_modName.shortName" (per BulkFill pattern)
 RmVehicleStorageCapacity.SPEC_TABLE_NAME = ("spec_%s.rmVehicleStorageCapacity"):format(g_currentModName)
 
+-- ============================================================================
+-- Vehicle Eligibility Check (shared utility)
+-- ============================================================================
+
+--- Check if a vehicle is supported for capacity adjustment
+--- This is the central check used by both detection handler and console commands.
+---@param vehicle table|nil The vehicle to check
+---@return boolean isSupported True if vehicle can have capacity adjusted
+---@return string|nil reason Reason code if not supported (for logging)
+function RmVehicleStorageCapacity.isVehicleSupported(vehicle)
+    if vehicle == nil then
+        return false, "nil"
+    end
+
+    -- Must be a Vehicle class
+    if vehicle.isa == nil or not vehicle:isa(Vehicle) then
+        return false, "not_vehicle"
+    end
+
+    -- Must have FillUnit specialization with fill units
+    local fillUnitSpec = vehicle.spec_fillUnit
+    if fillUnitSpec == nil or fillUnitSpec.fillUnits == nil or #fillUnitSpec.fillUnits == 0 then
+        return false, "no_fill_units"
+    end
+
+    -- Must have our specialization installed
+    if vehicle[RmVehicleStorageCapacity.SPEC_TABLE_NAME] == nil then
+        return false, "no_spec"
+    end
+
+    -- Exclude pallets - they ARE the product, not containers
+    -- Pallet specialization sets vehicle.isPallet = true in onPreLoad
+    if vehicle.isPallet == true then
+        return false, "is_pallet"
+    end
+
+    -- Exclude big bags - they ARE the product, not containers
+    if vehicle.spec_bigBag ~= nil then
+        return false, "is_bigbag"
+    end
+
+    return true, nil
+end
+
+-- ============================================================================
+-- Specialization Registration
+-- ============================================================================
+
 --- Check if this specialization can be added
 --- Returns true if vehicle has FillUnit specialization with fill units
 function RmVehicleStorageCapacity.prerequisitesPresent(specializations)
@@ -180,36 +228,60 @@ function RmVehicleStorageCapacity:getAllFillUnitInfo()
         return result
     end
 
+    -- Build set of fill unit indexes used by Leveler specialization (internal mechanics)
+    local levelerFillUnits = {}
+    local levelerSpec = self.spec_leveler
+    if levelerSpec ~= nil then
+        -- Main leveler fillUnitIndex
+        if levelerSpec.fillUnitIndex ~= nil then
+            levelerFillUnits[levelerSpec.fillUnitIndex] = true
+        end
+        -- Each leveler node can have its own fillUnitIndex
+        if levelerSpec.nodes ~= nil then
+            for _, node in pairs(levelerSpec.nodes) do
+                if node.fillUnitIndex ~= nil then
+                    levelerFillUnits[node.fillUnitIndex] = true
+                end
+            end
+        end
+    end
+
     for i, fillUnit in ipairs(fillUnitSpec.fillUnits) do
-        -- Determine display name from fill type title (avoids l10n issues with unitText)
-        local displayName = string.format("Tank %d", i)
-        -- Only get title if fillType is valid (not UNKNOWN), otherwise getFillTypeTitleByIndex returns "Unknown"
-        if fillUnit.fillType ~= nil and fillUnit.fillType ~= FillType.UNKNOWN then
-            local fillTypeTitle = g_fillTypeManager:getFillTypeTitleByIndex(fillUnit.fillType)
-            if fillTypeTitle ~= nil and fillTypeTitle ~= "" then
-                displayName = fillTypeTitle
+        -- Skip leveler fill units - they're internal buffers for pushing/leveling in bunker silos
+        -- Adjusting their capacity would affect leveling mechanics unpredictably
+        if levelerFillUnits[i] then
+            Log:trace("Skipping leveler fill unit %d (capacity=%d L)", i, fillUnit.capacity)
+        else
+            -- Determine display name from fill type title (avoids l10n issues with unitText)
+            local displayName = string.format("Tank %d", i)
+            -- Only get title if fillType is valid (not UNKNOWN), otherwise getFillTypeTitleByIndex returns "Unknown"
+            if fillUnit.fillType ~= nil and fillUnit.fillType ~= FillType.UNKNOWN then
+                local fillTypeTitle = g_fillTypeManager:getFillTypeTitleByIndex(fillUnit.fillType)
+                if fillTypeTitle ~= nil and fillTypeTitle ~= "" then
+                    displayName = fillTypeTitle
+                end
+            elseif fillUnit.supportedFillTypes ~= nil and next(fillUnit.supportedFillTypes) ~= nil then
+                -- Empty multi-purpose container
+                displayName = "Storage"
             end
-        elseif fillUnit.supportedFillTypes ~= nil and next(fillUnit.supportedFillTypes) ~= nil then
-            -- Empty multi-purpose container
-            displayName = "Storage"
-        end
 
-        -- Get supported fill types
-        local supportedFillTypes = {}
-        if fillUnit.supportedFillTypes ~= nil then
-            for fillTypeIndex, _ in pairs(fillUnit.supportedFillTypes) do
-                table.insert(supportedFillTypes, fillTypeIndex)
+            -- Get supported fill types
+            local supportedFillTypes = {}
+            if fillUnit.supportedFillTypes ~= nil then
+                for fillTypeIndex, _ in pairs(fillUnit.supportedFillTypes) do
+                    table.insert(supportedFillTypes, fillTypeIndex)
+                end
             end
-        end
 
-        table.insert(result, {
-            index = i,
-            name = displayName,
-            capacity = fillUnit.capacity,
-            fillLevel = fillUnit.fillLevel,
-            fillType = fillUnit.fillType,
-            supportedFillTypes = supportedFillTypes
-        })
+            table.insert(result, {
+                index = i,
+                name = displayName,
+                capacity = fillUnit.capacity,
+                fillLevel = fillUnit.fillLevel,
+                fillType = fillUnit.fillType,
+                supportedFillTypes = supportedFillTypes
+            })
+        end
     end
 
     return result
