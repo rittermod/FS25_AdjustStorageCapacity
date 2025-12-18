@@ -6,9 +6,10 @@ This mod gives you control over storage capacities for silos, production facilit
 
 Supports multiplayer with a permission system - server admins can modify any storage or vehicle, while farm managers can adjust their own farm's facilities and vehicles.
 
-> **Note:** Only bulk storage is supported. No pallets, big bags, or terrain heap-based storage like bunker silos.
+> [!WARNING]
+> This is an alpha release (early release). Both singleplayer and multiplayer functionality are tested, but there are probably some bugs not found. Please report any issues on [GitHub](https://github.com/rittermod/FS25_AdjustStorageCapacity/issues) or [Discord](https://discord.gg/KXFevNjknB).
 
-**Alpha Version:** This is an early release. Please report any issues on GitHub or Discord.
+> **Note:** Only bulk storage is supported. No pallets, big bags, or terrain heap-based storage like bunker silos.
 
 ## Features
 
