@@ -184,7 +184,7 @@ end
 ---@param callbackState any Callback state
 ---@param isAnalog boolean Whether input is analog
 function RmPlaceableStorageCapacity:actionEventAdjustCapacity(actionName, inputValue, callbackState, isAnalog)
-    Log:debug("K key pressed at %s", self:getName())
+    Log:debug("K pressed for %s", self:getName())
 
     -- Check permission
     local canModify, errorKey = RmAdjustStorageCapacity:canModifyCapacity(self)
@@ -259,7 +259,12 @@ function RmPlaceableStorageCapacity:onWriteStream(streamId, connection)
             streamWriteInt32(streamId, customCapacity.sharedCapacity)
         end
 
-        Log:debug("WriteStream: Sent custom capacities for %s", self:getName())
+        -- Count total capacities sent
+        local totalCount = fillTypeCount
+        if customCapacity.husbandryFood ~= nil then totalCount = totalCount + 1 end
+        if customCapacity.sharedCapacity ~= nil then totalCount = totalCount + 1 end
+
+        Log:debug("WriteStream: Sent %d custom capacities for %s", totalCount, self:getName())
     end
 end
 
@@ -301,7 +306,12 @@ function RmPlaceableStorageCapacity:onReadStream(streamId, connection)
             -- Apply the custom capacities
             RmAdjustStorageCapacity:applyCapacitiesToPlaceable(self, entry)
 
-            Log:debug("ReadStream: Applied custom capacities for %s", self:getName())
+            -- Count total capacities applied
+            local totalCount = fillTypeCount
+            if entry.husbandryFood ~= nil then totalCount = totalCount + 1 end
+            if entry.sharedCapacity ~= nil then totalCount = totalCount + 1 end
+
+            Log:debug("ReadStream: Applied %d custom capacities for %s", totalCount, self:getName())
         end
     end
 end

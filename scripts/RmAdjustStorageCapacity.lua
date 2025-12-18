@@ -19,13 +19,17 @@ RmAdjustStorageCapacity.STORAGE_TYPE = {
     HUSBANDRY_FOOD = "husbandryFood"
 }
 
--- Storage for custom capacities
+-- Storage for custom placeable capacities
 -- Key = uniqueId, Value = {fillTypes = {[fillTypeIndex] = capacity}, husbandryFood = capacity}
 RmAdjustStorageCapacity.customCapacities = {}
 
--- Storage for original capacities (for reset functionality)
+-- Storage for original placeable capacities (for reset functionality)
 -- Key = uniqueId, Value = {fillTypes = {[fillTypeIndex] = capacity}, husbandryFood = capacity}
 RmAdjustStorageCapacity.originalCapacities = {}
+
+-- Storage for custom vehicle capacities
+-- Key = uniqueId, Value = {[fillUnitIndex] = capacity}
+RmAdjustStorageCapacity.vehicleCapacities = {}
 
 -- Console error messages (hardcoded English - console is developer-facing)
 local CONSOLE_ERRORS = {
@@ -212,10 +216,15 @@ end
 function RmAdjustStorageCapacity:loadMap()
     Log:info("Mod loaded successfully (v%s)", g_modManager:getModByName(self.modName).version)
 
-    -- Register console commands
+    -- Register console commands for placeables
     addConsoleCommand("ascList", "Lists all storage placeables with capacities", "consoleCommandList", self)
     addConsoleCommand("ascSet", "Sets capacity: ascSet <index> <fillType> <capacity>", "consoleCommandSet", self)
     addConsoleCommand("ascReset", "Resets capacity: ascReset <index> [fillType]", "consoleCommandReset", self)
+
+    -- Register console commands for vehicles
+    addConsoleCommand("ascListVehicles", "Lists all vehicles with fill units", "consoleCommandListVehicles", self)
+    addConsoleCommand("ascSetVehicle", "Sets vehicle capacity: ascSetVehicle <index> <fillUnit> <capacity>", "consoleCommandSetVehicle", self)
+    addConsoleCommand("ascResetVehicle", "Resets vehicle capacity: ascResetVehicle <index> [fillUnit]", "consoleCommandResetVehicle", self)
 end
 
 --- Called when mission starts (via hook) - placeables are populated at this point
@@ -225,26 +234,32 @@ function RmAdjustStorageCapacity.onMissionStarted()
     -- Register console commands for log level management
     RmLogging.registerConsoleCommands()
 
-    -- Register GUI dialog
+    -- Register GUI dialogs
     RmStorageCapacityDialog.register()
+    RmVehicleCapacityDialog.register()
 
     -- Initialize menu integration (adds K button to production/husbandry menus)
     RmMenuIntegration.init()
+
+    -- Initialize vehicle detection handler (player-attached trigger for vehicles)
+    RmVehicleDetectionHandler.init()
 
     -- Capture original capacities for all storages (before any modifications)
     RmAdjustStorageCapacity:captureAllOriginalCapacities()
 
     -- Server: Load and apply capacities from savegame
-    -- Client: Skip - capacities already received via ReadStream during placeable sync
+    -- Client: Skip - capacities already received via ReadStream during placeable/vehicle sync
     if g_server ~= nil then
         RmAdjustStorageCapacity:loadFromSavegame()
         RmAdjustStorageCapacity:applyAllCapacities()
+        RmAdjustStorageCapacity:applyAllVehicleCapacities()
     else
         Log:debug("Client: skipping loadFromSavegame/applyAllCapacities (received via ReadStream)")
     end
 
     -- Log current state
     RmAdjustStorageCapacity:logAllStorages()
+    RmAdjustStorageCapacity:logAllVehicles()
 end
 
 -- ============================================================================
@@ -390,6 +405,26 @@ function RmAdjustStorageCapacity:applyAllCapacities()
 
     if applied > 0 then
         Log:info("Applied custom capacities to %d storage(s)", applied)
+    end
+end
+
+--- Apply all saved vehicle capacities (called after savegame load)
+function RmAdjustStorageCapacity:applyAllVehicleCapacities()
+    local applied = 0
+
+    -- Iterate through all vehicles with custom capacities
+    for uniqueId, fillUnitCapacities in pairs(self.vehicleCapacities) do
+        local vehicle = self:findVehicleByUniqueId(uniqueId)
+        if vehicle ~= nil then
+            self:applyVehicleCapacities(vehicle)
+            applied = applied + 1
+        else
+            Log:debug("Vehicle not found for uniqueId: %s", uniqueId)
+        end
+    end
+
+    if applied > 0 then
+        Log:info("Applied custom capacities to %d vehicle(s)", applied)
     end
 end
 
@@ -719,6 +754,243 @@ function RmAdjustStorageCapacity:resetCapacity(placeable, fillTypeIndex)
 end
 
 -- ============================================================================
+-- Vehicle Capacity Functions
+-- ============================================================================
+
+--- Set a custom capacity for a vehicle fill unit
+---@param vehicle table The vehicle
+---@param fillUnitIndex number The fill unit index (1-based)
+---@param newCapacity number The new capacity
+---@return boolean success Whether the capacity was set
+---@return string|nil error Error message if failed
+function RmAdjustStorageCapacity:setVehicleCapacity(vehicle, fillUnitIndex, newCapacity)
+    if vehicle == nil then
+        return false, "Vehicle not found"
+    end
+
+    if newCapacity < 0 then
+        return false, "Capacity must be positive"
+    end
+
+    local uniqueId = vehicle.uniqueId
+    if uniqueId == nil then
+        return false, "Vehicle has no unique ID"
+    end
+
+    -- Initialize capacity table for this vehicle if needed
+    if self.vehicleCapacities[uniqueId] == nil then
+        self.vehicleCapacities[uniqueId] = {}
+    end
+
+    -- Store the custom capacity
+    self.vehicleCapacities[uniqueId][fillUnitIndex] = newCapacity
+
+    -- Apply immediately
+    self:applyVehicleCapacity(vehicle, fillUnitIndex, newCapacity)
+
+    Log:info("Set vehicle %s fillUnit[%d] capacity to %d", vehicle:getName(), fillUnitIndex, newCapacity)
+    return true, nil
+end
+
+--- Reset a vehicle fill unit capacity to original
+---@param vehicle table The vehicle
+---@param fillUnitIndex number|nil The fill unit index (nil = reset all)
+---@return boolean success Whether the capacity was reset
+---@return string|nil error Error message if failed
+function RmAdjustStorageCapacity:resetVehicleCapacity(vehicle, fillUnitIndex)
+    if vehicle == nil then
+        return false, "Vehicle not found"
+    end
+
+    local uniqueId = vehicle.uniqueId
+    if uniqueId == nil then
+        return false, "Vehicle has no unique ID"
+    end
+
+    local spec = vehicle[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
+    if spec == nil then
+        return false, "Vehicle does not have storage capacity specialization"
+    end
+
+    if fillUnitIndex ~= nil and fillUnitIndex > 0 then
+        -- Reset specific fill unit
+        if self.vehicleCapacities[uniqueId] ~= nil then
+            self.vehicleCapacities[uniqueId][fillUnitIndex] = nil
+
+            -- Clean up empty table
+            if next(self.vehicleCapacities[uniqueId]) == nil then
+                self.vehicleCapacities[uniqueId] = nil
+            end
+        end
+
+        -- Apply original capacity
+        local originalCapacity = spec.originalCapacities[fillUnitIndex]
+        if originalCapacity ~= nil then
+            self:applyVehicleCapacity(vehicle, fillUnitIndex, originalCapacity)
+        end
+
+        Log:info("Reset vehicle %s fillUnit[%d] capacity to original", vehicle:getName(), fillUnitIndex)
+    else
+        -- Reset all fill units
+        self.vehicleCapacities[uniqueId] = nil
+
+        -- Apply all original capacities
+        for fuIndex, originalCapacity in pairs(spec.originalCapacities) do
+            self:applyVehicleCapacity(vehicle, fuIndex, originalCapacity)
+        end
+
+        Log:info("Reset all capacities for vehicle %s to original", vehicle:getName())
+    end
+
+    return true, nil
+end
+
+--- Apply custom capacities to a vehicle from stored settings
+---@param vehicle table The vehicle
+function RmAdjustStorageCapacity:applyVehicleCapacities(vehicle)
+    if vehicle == nil then
+        return
+    end
+
+    local uniqueId = vehicle.uniqueId
+    if uniqueId == nil then
+        return
+    end
+
+    local customCaps = self.vehicleCapacities[uniqueId]
+    if customCaps == nil then
+        return
+    end
+
+    for fillUnitIndex, capacity in pairs(customCaps) do
+        self:applyVehicleCapacity(vehicle, fillUnitIndex, capacity)
+    end
+
+    Log:debug("Applied custom capacities to vehicle %s", vehicle:getName())
+end
+
+--- Apply a specific capacity to a vehicle fill unit
+---@param vehicle table The vehicle
+---@param fillUnitIndex number The fill unit index (1-based)
+---@param capacity number The capacity to set
+function RmAdjustStorageCapacity:applyVehicleCapacity(vehicle, fillUnitIndex, capacity)
+    if vehicle == nil then
+        return
+    end
+
+    local fillUnitSpec = vehicle.spec_fillUnit
+    if fillUnitSpec == nil or fillUnitSpec.fillUnits == nil then
+        return
+    end
+
+    local fillUnit = fillUnitSpec.fillUnits[fillUnitIndex]
+    if fillUnit == nil then
+        Log:warning("Fill unit %d not found on vehicle %s", fillUnitIndex, vehicle:getName())
+        return
+    end
+
+    local oldCapacity = fillUnit.capacity
+    fillUnit.capacity = capacity
+
+    -- Check for overfill situation
+    if fillUnit.fillLevel > capacity then
+        Log:info("Vehicle %s fillUnit[%d] overfilled: %d > %d (will drain naturally)",
+            vehicle:getName(), fillUnitIndex, fillUnit.fillLevel, capacity)
+    end
+
+    Log:debug("Applied capacity %d -> %d to vehicle %s fillUnit[%d]",
+        oldCapacity, capacity, vehicle:getName(), fillUnitIndex)
+end
+
+--- Check if current player can modify a vehicle's capacity
+---@param vehicle table The vehicle
+---@return boolean canModify Whether the player can modify the capacity
+---@return string|nil errorKey Localization key for error message if not allowed
+function RmAdjustStorageCapacity:canModifyVehicleCapacity(vehicle)
+    if vehicle == nil then
+        return false, "rm_asc_error_notAvailable"
+    end
+
+    local ownerFarmId = vehicle:getOwnerFarmId()
+    local playerFarmId = g_currentMission:getFarmId()
+    local isMultiplayer = g_currentMission.missionDynamicInfo.isMultiplayer
+
+    -- Check admin/server status first (can modify ANY vehicle)
+    if isMultiplayer then
+        if g_currentMission:getIsServer() then
+            return true, nil
+        end
+        if g_currentMission.isMasterUser then
+            return true, nil
+        end
+    end
+
+    -- Non-admin: must own the vehicle
+    if ownerFarmId ~= playerFarmId then
+        return false, "rm_asc_error_notOwner"
+    end
+
+    -- Single player: ownership is sufficient
+    if not isMultiplayer then
+        return true, nil
+    end
+
+    -- Multiplayer non-admin: must be farm manager
+    local farm = g_farmManager:getFarmById(playerFarmId)
+    if farm ~= nil and farm:isUserFarmManager(g_currentMission.playerUserId) then
+        return true, nil
+    end
+
+    return false, "rm_asc_error_notManager"
+end
+
+--- Find a vehicle by its unique ID
+---@param uniqueId string The unique ID to search for
+---@return table|nil vehicle The vehicle or nil if not found
+function RmAdjustStorageCapacity:findVehicleByUniqueId(uniqueId)
+    if uniqueId == nil then
+        return nil
+    end
+
+    -- FS25 has a direct lookup method
+    if g_currentMission.vehicleSystem ~= nil then
+        return g_currentMission.vehicleSystem:getVehicleByUniqueId(uniqueId)
+    end
+
+    return nil
+end
+
+--- Get all vehicles with fill units that can be modified
+---@return table Array of vehicles with fill units
+function RmAdjustStorageCapacity:getAllVehiclesWithFillUnits()
+    local vehicles = {}
+
+    -- FS25 stores vehicles in vehicleSystem.vehicles, not g_currentMission.vehicles
+    local vehicleList = {}
+    if g_currentMission.vehicleSystem ~= nil then
+        vehicleList = g_currentMission.vehicleSystem.vehicles or {}
+    end
+
+    local totalVehicles = 0
+    for _, vehicle in pairs(vehicleList) do
+        totalVehicles = totalVehicles + 1
+
+        -- Use central eligibility check
+        local isSupported, reason = RmVehicleStorageCapacity.isVehicleSupported(vehicle)
+        if isSupported then
+            table.insert(vehicles, vehicle)
+        else
+            Log:trace("Skipping vehicle (%s): %s", reason, vehicle:getName() or "unknown")
+        end
+    end
+
+    Log:debug("getAllVehiclesWithFillUnits: Checked %d vehicles, found %d supported",
+        totalVehicles, #vehicles)
+
+    return vehicles
+end
+
+-- ============================================================================
 -- Storage Lookup
 -- ============================================================================
 
@@ -837,8 +1109,51 @@ function RmAdjustStorageCapacity:loadFromSavegame()
         i = i + 1
     end
 
+    -- Load vehicle capacities
+    self.vehicleCapacities = {}
+    local vehicleCount = 0
+    i = 0
+
+    while true do
+        local vehicleKey = string.format("adjustStorageCapacity.vehicles.vehicle(%d)", i)
+        if not hasXMLProperty(xmlFile, vehicleKey) then
+            break
+        end
+
+        local uniqueId = getXMLString(xmlFile, vehicleKey .. "#uniqueId")
+        if uniqueId then
+            local entry = {}
+
+            -- Load fill unit capacities
+            local j = 0
+            while true do
+                local fillUnitKey = string.format("%s.fillUnit(%d)", vehicleKey, j)
+                if not hasXMLProperty(xmlFile, fillUnitKey) then
+                    break
+                end
+
+                local fillUnitIndex = getXMLInt(xmlFile, fillUnitKey .. "#index")
+                local capacity = getXMLInt(xmlFile, fillUnitKey .. "#capacity")
+
+                if fillUnitIndex ~= nil and capacity ~= nil then
+                    entry[fillUnitIndex] = capacity
+                end
+
+                j = j + 1
+            end
+
+            -- Only store if we have data
+            if next(entry) ~= nil then
+                self.vehicleCapacities[uniqueId] = entry
+                vehicleCount = vehicleCount + 1
+            end
+        end
+
+        i = i + 1
+    end
+
     delete(xmlFile)
-    Log:info("Loaded custom capacities for %d storage(s) from savegame", storageCount)
+    Log:info("Loaded custom capacities for %d storage(s) and %d vehicle(s) from savegame", storageCount, vehicleCount)
 end
 
 --- Save custom capacities to savegame XML
@@ -853,11 +1168,14 @@ function RmAdjustStorageCapacity.saveToSavegame()
 
     local xmlPath = savegameDir .. "/adjustStorageCapacity.xml"
 
-    -- Count storages with custom capacities
-    local count = 0
-    for _ in pairs(self.customCapacities) do count = count + 1 end
+    -- Count storages and vehicles with custom capacities
+    local storageCount = 0
+    for _ in pairs(self.customCapacities) do storageCount = storageCount + 1 end
 
-    if count == 0 then
+    local vehicleCount = 0
+    for _ in pairs(self.vehicleCapacities) do vehicleCount = vehicleCount + 1 end
+
+    if storageCount == 0 and vehicleCount == 0 then
         -- No custom capacities, delete file if exists
         if fileExists(xmlPath) then
             deleteFile(xmlPath)
@@ -872,6 +1190,7 @@ function RmAdjustStorageCapacity.saveToSavegame()
         return
     end
 
+    -- Save storage capacities
     local i = 0
     for uniqueId, entry in pairs(self.customCapacities) do
         local storageKey = string.format("adjustStorageCapacity.storages.storage(%d)", i)
@@ -907,9 +1226,27 @@ function RmAdjustStorageCapacity.saveToSavegame()
         i = i + 1
     end
 
+    -- Save vehicle capacities
+    i = 0
+    for uniqueId, entry in pairs(self.vehicleCapacities) do
+        local vehicleKey = string.format("adjustStorageCapacity.vehicles.vehicle(%d)", i)
+        setXMLString(xmlFile, vehicleKey .. "#uniqueId", uniqueId)
+
+        -- Save fill unit capacities
+        local j = 0
+        for fillUnitIndex, capacity in pairs(entry) do
+            local fillUnitKey = string.format("%s.fillUnit(%d)", vehicleKey, j)
+            setXMLInt(xmlFile, fillUnitKey .. "#index", fillUnitIndex)
+            setXMLInt(xmlFile, fillUnitKey .. "#capacity", capacity)
+            j = j + 1
+        end
+
+        i = i + 1
+    end
+
     saveXMLFile(xmlFile)
     delete(xmlFile)
-    Log:info("Saved custom capacities for %d storage(s) to savegame", count)
+    Log:info("Saved custom capacities for %d storage(s) and %d vehicle(s) to savegame", storageCount, vehicleCount)
 end
 
 -- ============================================================================
@@ -1108,6 +1445,186 @@ function RmAdjustStorageCapacity:consoleCommandReset(indexStr, fillTypeStr)
 end
 
 -- ============================================================================
+-- Vehicle Console Commands
+-- ============================================================================
+
+--- Console command: List all vehicles with fill units
+function RmAdjustStorageCapacity:consoleCommandListVehicles()
+    local vehicles = self:getAllVehiclesWithFillUnits()
+
+    if #vehicles == 0 then
+        return "No vehicles with fill units found"
+    end
+
+    Log:info("=== Vehicle Fill Unit Capacities ===")
+
+    for i, vehicle in ipairs(vehicles) do
+        local uniqueId = vehicle.uniqueId or "N/A"
+        local name = vehicle:getName() or "Unknown"
+        local ownerFarmId = vehicle:getOwnerFarmId() or 0
+
+        local customMarker = ""
+        if self.vehicleCapacities[uniqueId] then
+            customMarker = " [CUSTOM]"
+        end
+
+        Log:info(string.format("#%d: %s (Farm %d)%s",
+            i, name, ownerFarmId, customMarker))
+        Log:info(string.format("    UniqueId: %s", uniqueId))
+
+        -- Show fill units
+        local fillUnitSpec = vehicle.spec_fillUnit
+        if fillUnitSpec ~= nil and fillUnitSpec.fillUnits ~= nil then
+            -- Build set of fill unit indexes used by Leveler specialization (internal mechanics)
+            local levelerFillUnits = {}
+            local levelerSpec = vehicle.spec_leveler
+            if levelerSpec ~= nil then
+                if levelerSpec.fillUnitIndex ~= nil then
+                    levelerFillUnits[levelerSpec.fillUnitIndex] = true
+                end
+                if levelerSpec.nodes ~= nil then
+                    for _, node in pairs(levelerSpec.nodes) do
+                        if node.fillUnitIndex ~= nil then
+                            levelerFillUnits[node.fillUnitIndex] = true
+                        end
+                    end
+                end
+            end
+
+            for j, fillUnit in ipairs(fillUnitSpec.fillUnits) do
+                -- Skip leveler fill units - internal buffers for bunker silo leveling
+                if levelerFillUnits[j] then
+                    Log:debug("    - [%d] (leveler buffer - skipped, capacity=%d L)", j, fillUnit.capacity)
+                else
+                    -- Get fill type info and display name
+                    local ftName = "EMPTY"
+                    local displayName = string.format("Tank %d", j)
+                    if fillUnit.fillType ~= nil and fillUnit.fillType ~= FillType.UNKNOWN then
+                        local ftData = g_fillTypeManager:getFillTypeByIndex(fillUnit.fillType)
+                        if ftData ~= nil then
+                            ftName = ftData.name or "UNKNOWN"
+                            -- Use fill type title as display name (properly localized)
+                            if ftData.title ~= nil and ftData.title ~= "" then
+                                displayName = ftData.title
+                            end
+                        end
+                    else
+                        -- Empty container - check if it's multi-purpose storage
+                        if fillUnit.supportedFillTypes ~= nil and next(fillUnit.supportedFillTypes) ~= nil then
+                            displayName = "Storage"
+                        end
+                    end
+
+                    -- Check for custom capacity
+                    local customMark = ""
+                    local customCaps = self.vehicleCapacities[uniqueId]
+                    if customCaps ~= nil and customCaps[j] ~= nil then
+                        customMark = " *"
+                    end
+
+                    Log:info(string.format("    - [%d] %s: %d / %d L (%s)%s",
+                        j, displayName, math.floor(fillUnit.fillLevel), fillUnit.capacity, ftName, customMark))
+
+                    -- Show supported fill types (for debugging multi-fill-unit vehicles)
+                    if fillUnit.supportedFillTypes ~= nil then
+                        local supportedNames = {}
+                        for ftIndex, isSupported in pairs(fillUnit.supportedFillTypes) do
+                            if isSupported then
+                                local ftData = g_fillTypeManager:getFillTypeByIndex(ftIndex)
+                                if ftData ~= nil then
+                                    table.insert(supportedNames, ftData.name or "?")
+                                end
+                            end
+                        end
+                        if #supportedNames > 0 then
+                            table.sort(supportedNames)
+                            -- Truncate if too many
+                            if #supportedNames > 10 then
+                                local count = #supportedNames
+                                supportedNames = {table.unpack(supportedNames, 1, 10)}
+                                table.insert(supportedNames, string.format("... +%d more", count - 10))
+                            end
+                            Log:info(string.format("      Supports: %s", table.concat(supportedNames, ", ")))
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return string.format("Listed %d vehicle(s). Use 'ascSetVehicle <index> <fillUnit> <capacity>' to set capacity.", #vehicles)
+end
+
+--- Console command: Set vehicle capacity
+function RmAdjustStorageCapacity:consoleCommandSetVehicle(indexStr, fillUnitStr, capacityStr)
+    if indexStr == nil or fillUnitStr == nil or capacityStr == nil then
+        return "Usage: ascSetVehicle <index> <fillUnit> <capacity>\n  fillUnit: 1-based fill unit index"
+    end
+
+    local index = tonumber(indexStr)
+    local fillUnitIndex = tonumber(fillUnitStr)
+    local capacity = tonumber(capacityStr)
+
+    if index == nil or fillUnitIndex == nil or capacity == nil then
+        return "Invalid arguments. All values must be numbers."
+    end
+
+    local vehicles = self:getAllVehiclesWithFillUnits()
+    if index < 1 or index > #vehicles then
+        return "Vehicle not found (use ascListVehicles to see valid indexes)"
+    end
+
+    local vehicle = vehicles[index]
+
+    -- Check permission
+    local canModify, errorKey = self:canModifyVehicleCapacity(vehicle)
+    if not canModify then
+        return "Error: " .. (CONSOLE_ERRORS[errorKey] or errorKey)
+    end
+
+    -- Use sync event for MP support
+    RmVehicleCapacitySyncEvent.sendSetCapacity(vehicle, fillUnitIndex, capacity)
+    return "Vehicle capacity change requested..."
+end
+
+--- Console command: Reset vehicle capacity
+function RmAdjustStorageCapacity:consoleCommandResetVehicle(indexStr, fillUnitStr)
+    if indexStr == nil then
+        return "Usage: ascResetVehicle <index> [fillUnit]\n  fillUnit: 1-based fill unit index, or omit to reset all"
+    end
+
+    local index = tonumber(indexStr)
+    if index == nil then
+        return "Invalid index"
+    end
+
+    local vehicles = self:getAllVehiclesWithFillUnits()
+    if index < 1 or index > #vehicles then
+        return "Vehicle not found (use ascListVehicles to see valid indexes)"
+    end
+
+    local vehicle = vehicles[index]
+
+    -- Check permission
+    local canModify, errorKey = self:canModifyVehicleCapacity(vehicle)
+    if not canModify then
+        return "Error: " .. (CONSOLE_ERRORS[errorKey] or errorKey)
+    end
+
+    -- fillUnit can be nil (reset all) or a number
+    local fillUnitIndex = nil
+    if fillUnitStr ~= nil then
+        fillUnitIndex = tonumber(fillUnitStr)
+        if fillUnitIndex == nil then
+            return "Invalid fill unit index"
+        end
+    end
+
+    RmVehicleCapacitySyncEvent.sendResetCapacity(vehicle, fillUnitIndex)
+    return "Vehicle capacity reset requested..."
+end
+
+-- ============================================================================
 -- Debug/Logging
 -- ============================================================================
 
@@ -1126,8 +1643,27 @@ function RmAdjustStorageCapacity:logAllStorages()
         local storageCount = #storageInfo.storages
         local hasFood = storageInfo.husbandryFood ~= nil and "+food" or ""
 
-        Log:info("  #%d: %s (Farm %d, %d storages%s)%s",
+        Log:debug("  #%d: %s (Farm %d, %d storages%s)%s",
             i, name, ownerFarmId, storageCount, hasFood, customMarker)
+    end
+end
+
+--- Log all vehicles with fill units
+function RmAdjustStorageCapacity:logAllVehicles()
+    local vehicles = self:getAllVehiclesWithFillUnits()
+    Log:info("Found %d vehicle(s) with fill units", #vehicles)
+
+    for i, vehicle in ipairs(vehicles) do
+        local uniqueId = vehicle.uniqueId or "N/A"
+        local name = vehicle:getName() or "Unknown"
+        local ownerFarmId = vehicle:getOwnerFarmId() or 0
+        local customMarker = self.vehicleCapacities[uniqueId] and " [CUSTOM]" or ""
+
+        local fillUnitSpec = vehicle.spec_fillUnit
+        local fillUnitCount = fillUnitSpec and fillUnitSpec.fillUnits and #fillUnitSpec.fillUnits or 0
+
+        Log:debug("  #%d: %s (Farm %d, %d fill units)%s",
+            i, name, ownerFarmId, fillUnitCount, customMarker)
     end
 end
 
@@ -1135,15 +1671,24 @@ end
 function RmAdjustStorageCapacity:deleteMap()
     Log:debug("Mod unloading")
 
-    -- Remove console commands
+    -- Remove placeable console commands
     removeConsoleCommand("ascList")
     removeConsoleCommand("ascSet")
     removeConsoleCommand("ascReset")
+
+    -- Remove vehicle console commands
+    removeConsoleCommand("ascListVehicles")
+    removeConsoleCommand("ascSetVehicle")
+    removeConsoleCommand("ascResetVehicle")
+
     RmLogging.unregisterConsoleCommands()
 
-    -- Clear data
+    -- Clear placeable data
     self.customCapacities = {}
     self.originalCapacities = {}
+
+    -- Clear vehicle data
+    self.vehicleCapacities = {}
 end
 
 -- ============================================================================

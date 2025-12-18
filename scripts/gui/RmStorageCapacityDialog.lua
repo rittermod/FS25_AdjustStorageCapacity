@@ -122,6 +122,10 @@ function RmStorageCapacityDialog:refreshFillTypeList()
     -- Get all fill types from the placeable
     local fillTypes = RmAdjustStorageCapacity:getAllFillTypes(self.placeable)
 
+    -- Get custom capacities for this placeable (to show * marker)
+    local uniqueId = self.placeable.uniqueId
+    local customCapacity = uniqueId and RmAdjustStorageCapacity.customCapacities[uniqueId] or nil
+
     -- Check if this is a shared capacity storage (all entries have isSharedCapacity = true)
     local hasSharedCapacity = false
     local sharedCapacityValue = 0
@@ -139,13 +143,17 @@ function RmStorageCapacityDialog:refreshFillTypeList()
     if hasSharedCapacity and #fillTypes > 0 then
         self.isSharedCapacityMode = true
 
+        -- Check if shared capacity has been modified
+        local hasCustomSharedCapacity = customCapacity ~= nil and customCapacity.sharedCapacity ~= nil
+
         -- Insert header row for shared capacity (fillTypeIndex = 0 is special marker)
         table.insert(self.fillTypeEntries, {
             fillTypeIndex = 0, -- Special marker for shared capacity header
             fillTypeName = g_i18n:getText("rm_asc_sharedCapacity") or "Shared Capacity",
             capacity = sharedCapacityValue,
             fillLevel = totalFillLevel,
-            isSharedCapacityHeader = true
+            isSharedCapacityHeader = true,
+            hasCustomCapacity = hasCustomSharedCapacity
         })
 
         -- Add fill type entries (they will only show fill level, not capacity)
@@ -171,12 +179,24 @@ function RmStorageCapacityDialog:refreshFillTypeList()
     else
         -- Per-filltype mode (original behavior)
         for _, ft in ipairs(fillTypes) do
+            -- Check if this fill type has custom capacity
+            local hasCustom = false
+            if ft.fillTypeIndex == -1 then
+                -- Husbandry food
+                hasCustom = customCapacity ~= nil and customCapacity.husbandryFood ~= nil
+            else
+                -- Regular fill type
+                hasCustom = customCapacity ~= nil and customCapacity.fillTypes ~= nil
+                    and customCapacity.fillTypes[ft.fillTypeIndex] ~= nil
+            end
+
             local entry = {
                 fillTypeIndex = ft.fillTypeIndex,
                 fillTypeName = ft.fillTypeName,
                 capacity = ft.capacity,
                 fillLevel = ft.fillLevel,
-                storageType = ft.storageType
+                storageType = ft.storageType,
+                hasCustomCapacity = hasCustom
             }
             table.insert(self.fillTypeEntries, entry)
         end
@@ -242,7 +262,11 @@ function RmStorageCapacityDialog:populateCellForItemInSection(list, section, ind
                 nameElement:setText(entry.fillTypeName or "Shared Capacity")
                 secondaryElement:setText(string.format("Total Fill: %s", g_i18n:formatVolume(entry.fillLevel)))
                 if not isEditing then
-                    rightElement:setText(g_i18n:formatVolume(entry.capacity))
+                    local capacityText = g_i18n:formatVolume(entry.capacity)
+                    if entry.hasCustomCapacity then
+                        capacityText = capacityText .. " *"
+                    end
+                    rightElement:setText(capacityText)
                 end
 
             elseif entry.isSharedCapacity then
@@ -283,7 +307,11 @@ function RmStorageCapacityDialog:populateCellForItemInSection(list, section, ind
                 nameElement:setText(entry.fillTypeName or "Unknown")
                 secondaryElement:setText(string.format("Fill: %s", g_i18n:formatVolume(entry.fillLevel)))
                 if not isEditing then
-                    rightElement:setText(g_i18n:formatVolume(entry.capacity))
+                    local capacityText = g_i18n:formatVolume(entry.capacity)
+                    if entry.hasCustomCapacity then
+                        capacityText = capacityText .. " *"
+                    end
+                    rightElement:setText(capacityText)
                 end
             end
         end
@@ -449,6 +477,7 @@ function RmStorageCapacityDialog:applyEditing()
     -- (Don't call refreshFillTypeList - it reads from storage which may not be updated yet in MP)
     if editedIndex ~= nil and self.fillTypeEntries[editedIndex] ~= nil then
         self.fillTypeEntries[editedIndex].capacity = newValue
+        self.fillTypeEntries[editedIndex].hasCustomCapacity = true
     end
 
     -- Reload list to show updated value
