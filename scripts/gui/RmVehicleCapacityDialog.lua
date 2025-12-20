@@ -315,11 +315,21 @@ function RmVehicleCapacityDialog:applyEditing()
 
     newValue = math.floor(newValue)
 
-    Log:debug("applyEditing: fillUnit=%d, oldValue=%d, newValue=%d",
-        self.editingEntry.fillUnitIndex, self.editingOriginalValue or 0, newValue)
+    -- Clamp to minimum capacity (current fill level) to prevent data loss
+    local minCapacity = math.floor(self.editingEntry.fillLevel or 0)
+    local wasClamped = false
+    if newValue < minCapacity then
+        Log:info("Capacity clamped from %d to %d (current fill level)", newValue, minCapacity)
+        newValue = minCapacity
+        wasClamped = true
+    end
 
-    -- Send the capacity change via network event
-    RmVehicleCapacitySyncEvent.sendSetCapacity(self.vehicle, self.editingEntry.fillUnitIndex, newValue)
+    Log:debug("applyEditing: fillUnit=%d, oldValue=%d, newValue=%d%s",
+        self.editingEntry.fillUnitIndex, self.editingOriginalValue or 0, newValue,
+        wasClamped and " (clamped)" or "")
+
+    -- Send the capacity change via network event (pass wasClamped so notification shows correctly)
+    RmVehicleCapacitySyncEvent.sendSetCapacity(self.vehicle, self.editingEntry.fillUnitIndex, newValue, wasClamped)
 
     local editedIndex = self.editingIndex
 

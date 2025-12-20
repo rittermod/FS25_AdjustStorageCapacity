@@ -337,7 +337,8 @@ end
 ---@param placeable table The storage placeable object
 ---@param fillTypeIndex number Fill type index (-1 for HusbandryFood)
 ---@param newCapacity number New capacity value
-function RmStorageCapacitySyncEvent.sendSetCapacity(placeable, fillTypeIndex, newCapacity)
+---@param wasClampedByDialog boolean|nil Optional flag if clamping was done by dialog
+function RmStorageCapacitySyncEvent.sendSetCapacity(placeable, fillTypeIndex, newCapacity, wasClampedByDialog)
     if placeable == nil then
         Log:warning("sendSetCapacity: placeable is nil")
         return
@@ -345,6 +346,20 @@ function RmStorageCapacitySyncEvent.sendSetCapacity(placeable, fillTypeIndex, ne
 
     Log:debug("sendSetCapacity: placeable=%s, fillType=%d, capacity=%d",
         placeable:getName(), fillTypeIndex, newCapacity)
+
+    -- Determine if clamping occurred - either from dialog or check locally (for console commands)
+    local wasClamped = wasClampedByDialog
+    if wasClamped == nil then
+        -- Console command or other caller - check if clamping is needed
+        local minCapacity = RmAdjustStorageCapacity:getMinCapacity(placeable, fillTypeIndex)
+        if newCapacity < minCapacity then
+            Log:info("Capacity clamped from %d to %d (current fill level)", newCapacity, minCapacity)
+            newCapacity = minCapacity
+            wasClamped = true
+        else
+            wasClamped = false
+        end
+    end
 
     local isMultiplayer = g_currentMission.missionDynamicInfo.isMultiplayer
     local isServer = g_currentMission:getIsServer()
@@ -369,8 +384,9 @@ function RmStorageCapacitySyncEvent.sendSetCapacity(placeable, fillTypeIndex, ne
                 local fillType = g_fillTypeManager:getFillTypeByIndex(fillTypeIndex)
                 fillTypeName = fillType and fillType.title or "Unknown"
             end
+            local messageKey = wasClamped and "rm_asc_mp_success_clamped" or "rm_asc_mp_success"
             g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
-                string.format(g_i18n:getText("rm_asc_mp_success"), placeable:getName(), fillTypeName, newCapacity))
+                string.format(g_i18n:getText(messageKey), placeable:getName(), fillTypeName, newCapacity))
         else
             Log:warning("Failed to set capacity: %s", err or "unknown")
             g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,

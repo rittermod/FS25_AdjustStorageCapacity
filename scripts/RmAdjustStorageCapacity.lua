@@ -575,6 +575,76 @@ end
 -- Capacity Modification API
 -- ============================================================================
 
+--- Get the minimum allowed capacity (current fill level) for a placeable storage
+--- Used to prevent setting capacity below current fill level
+---@param placeable table The storage placeable
+---@param fillTypeIndex number The fill type index (-1 for husbandryFood, 0 for shared capacity)
+---@return number minCapacity The current fill level (minimum allowed capacity)
+function RmAdjustStorageCapacity:getMinCapacity(placeable, fillTypeIndex)
+    if placeable == nil then
+        return 0
+    end
+
+    local storageInfo = self:getStorageInfo(placeable)
+
+    -- Husbandry food: sum all food fill levels
+    if fillTypeIndex == -1 then
+        if storageInfo.husbandryFood and storageInfo.husbandryFood.fillLevels then
+            local totalFill = 0
+            for _, level in pairs(storageInfo.husbandryFood.fillLevels) do
+                totalFill = totalFill + level
+            end
+            return math.floor(totalFill)
+        end
+        return 0
+    end
+
+    -- Shared capacity (fillTypeIndex == 0): sum all fill levels
+    if fillTypeIndex == 0 then
+        local totalFill = 0
+        for _, info in ipairs(storageInfo.storages) do
+            if info.storage.fillLevels then
+                for _, level in pairs(info.storage.fillLevels) do
+                    totalFill = totalFill + level
+                end
+            end
+        end
+        return math.floor(totalFill)
+    end
+
+    -- Per-fill-type: get specific fill level
+    for _, info in ipairs(storageInfo.storages) do
+        if info.storage.fillLevels and info.storage.fillLevels[fillTypeIndex] then
+            return math.floor(info.storage.fillLevels[fillTypeIndex])
+        end
+    end
+
+    return 0
+end
+
+--- Get the minimum allowed capacity (current fill level) for a vehicle fill unit
+--- Used to prevent setting capacity below current fill level
+---@param vehicle table The vehicle
+---@param fillUnitIndex number The fill unit index (1-based)
+---@return number minCapacity The current fill level (minimum allowed capacity)
+function RmAdjustStorageCapacity:getMinVehicleCapacity(vehicle, fillUnitIndex)
+    if vehicle == nil then
+        return 0
+    end
+
+    local fillUnitSpec = vehicle.spec_fillUnit
+    if fillUnitSpec == nil or fillUnitSpec.fillUnits == nil then
+        return 0
+    end
+
+    local fillUnit = fillUnitSpec.fillUnits[fillUnitIndex]
+    if fillUnit == nil then
+        return 0
+    end
+
+    return math.floor(fillUnit.fillLevel or 0)
+end
+
 --- Set a custom capacity for a storage
 ---@param placeable table The storage placeable
 ---@param fillTypeIndex number The fill type index (-1 for husbandryFood)

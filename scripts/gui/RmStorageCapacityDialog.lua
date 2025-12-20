@@ -446,8 +446,18 @@ function RmStorageCapacityDialog:applyEditing()
     -- Round to integer
     newValue = math.floor(newValue)
 
-    Log:debug("applyEditing: fillType=%s, oldValue=%d, newValue=%d",
-        self.editingEntry.fillTypeName or "?", self.editingOriginalValue or 0, newValue)
+    -- Clamp to minimum capacity (current fill level) to prevent data loss
+    local minCapacity = math.floor(self.editingEntry.fillLevel or 0)
+    local wasClamped = false
+    if newValue < minCapacity then
+        Log:info("Capacity clamped from %d to %d (current fill level)", newValue, minCapacity)
+        newValue = minCapacity
+        wasClamped = true
+    end
+
+    Log:debug("applyEditing: fillType=%s, oldValue=%d, newValue=%d%s",
+        self.editingEntry.fillTypeName or "?", self.editingOriginalValue or 0, newValue,
+        wasClamped and " (clamped)" or "")
 
     -- Determine the fill type index to use
     local fillTypeIndex
@@ -458,8 +468,8 @@ function RmStorageCapacityDialog:applyEditing()
         fillTypeIndex = self.editingEntry.fillTypeIndex
     end
 
-    -- Send the capacity change via network event
-    RmStorageCapacitySyncEvent.sendSetCapacity(self.placeable, fillTypeIndex, newValue)
+    -- Send the capacity change via network event (pass wasClamped so notification shows correctly)
+    RmStorageCapacitySyncEvent.sendSetCapacity(self.placeable, fillTypeIndex, newValue, wasClamped)
 
     -- Save index before clearing state
     local editedIndex = self.editingIndex

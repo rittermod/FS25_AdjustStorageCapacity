@@ -320,7 +320,8 @@ end
 ---@param vehicle table The vehicle object
 ---@param fillUnitIndex number Fill unit index (1-based)
 ---@param newCapacity number New capacity value
-function RmVehicleCapacitySyncEvent.sendSetCapacity(vehicle, fillUnitIndex, newCapacity)
+---@param wasClampedByDialog boolean|nil Optional flag if clamping was done by dialog
+function RmVehicleCapacitySyncEvent.sendSetCapacity(vehicle, fillUnitIndex, newCapacity, wasClampedByDialog)
     if vehicle == nil then
         Log:warning("sendSetCapacity: vehicle is nil")
         return
@@ -328,6 +329,20 @@ function RmVehicleCapacitySyncEvent.sendSetCapacity(vehicle, fillUnitIndex, newC
 
     Log:debug("sendSetCapacity: vehicle=%s, fillUnit=%d, capacity=%d",
         vehicle:getName(), fillUnitIndex, newCapacity)
+
+    -- Determine if clamping occurred - either from dialog or check locally (for console commands)
+    local wasClamped = wasClampedByDialog
+    if wasClamped == nil then
+        -- Console command or other caller - check if clamping is needed
+        local minCapacity = RmAdjustStorageCapacity:getMinVehicleCapacity(vehicle, fillUnitIndex)
+        if newCapacity < minCapacity then
+            Log:info("Capacity clamped from %d to %d (current fill level)", newCapacity, minCapacity)
+            newCapacity = minCapacity
+            wasClamped = true
+        else
+            wasClamped = false
+        end
+    end
 
     local isMultiplayer = g_currentMission.missionDynamicInfo.isMultiplayer
     local isServer = g_currentMission:getIsServer()
@@ -345,8 +360,9 @@ function RmVehicleCapacitySyncEvent.sendSetCapacity(vehicle, fillUnitIndex, newC
                     RmVehicleCapacitySyncEvent.RESULT_OK, vehicle, fillUnitIndex, newCapacity))
             end
 
+            local messageKey = wasClamped and "rm_asc_vehicle_capacitySet_clamped" or "rm_asc_vehicle_capacitySet"
             g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
-                string.format(g_i18n:getText("rm_asc_vehicle_capacitySet"), vehicle:getName(), newCapacity))
+                string.format(g_i18n:getText(messageKey), vehicle:getName(), newCapacity))
         else
             Log:warning("Failed to set capacity: %s", err or "unknown")
             g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
