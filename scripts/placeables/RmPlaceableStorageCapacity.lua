@@ -60,7 +60,9 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
 
     spec.storageTypes = {} -- Which storage types this placeable has
 
-    Log:debug("onLoad: %s", self:getName())
+    local ownerFarmId = self:getOwnerFarmId()
+    Log:debug("onLoad: %s (uniqueId=%s, ownerFarmId=%s)",
+        self:getName(), tostring(self.uniqueId), tostring(ownerFarmId))
 end
 
 --- Called after placeable loads - detect storage types
@@ -79,8 +81,10 @@ function RmPlaceableStorageCapacity:onPostLoad(savegame)
     -- This must happen here (not in onMissionStarted) because ReadStream runs before mission start
     RmAdjustStorageCapacity:captureOriginalCapacities(self)
 
-    Log:debug("onPostLoad complete: %s (storage types: %s)",
-        self:getName(), table.concat(spec.storageTypes, ", "))
+    local ownerFarmId = self:getOwnerFarmId()
+    Log:debug("onPostLoad complete: %s (uniqueId=%s, ownerFarmId=%s, storage types: %s)",
+        self:getName(), tostring(self.uniqueId), tostring(ownerFarmId),
+        table.concat(spec.storageTypes, ", "))
 end
 
 --- Detect which storage types are present on this placeable
@@ -172,7 +176,12 @@ end
 ---@param connection table Network connection
 function RmPlaceableStorageCapacity:onWriteStream(streamId, connection)
     local uniqueId = self.uniqueId
+    local placeableName = self:getName() or "Unknown"
+    local ownerFarmId = self:getOwnerFarmId()
     local customCapacity = RmAdjustStorageCapacity.customCapacities[uniqueId]
+
+    Log:debug("WriteStream: Starting for %s (uniqueId=%s, ownerFarmId=%s)",
+        placeableName, tostring(uniqueId), tostring(ownerFarmId))
 
     -- Send custom capacity data if present
     if streamWriteBool(streamId, customCapacity ~= nil) then
@@ -217,9 +226,26 @@ end
 ---@param connection table Network connection
 function RmPlaceableStorageCapacity:onReadStream(streamId, connection)
     local uniqueId = self.uniqueId
+    local placeableName = self:getName() or "Unknown"
+
+    Log:debug("ReadStream: Starting for %s (uniqueId=%s)", placeableName, tostring(uniqueId))
+
+    -- Log farm context for debugging multiplayer issues
+    local ownerFarmId = self:getOwnerFarmId()
+    local playerFarmId = nil
+    local isSpectator = false
+    if g_currentMission ~= nil and g_currentMission.player ~= nil then
+        playerFarmId = g_currentMission.player.farmId
+        isSpectator = g_currentMission.player:getIsInSpectatorMode()
+    end
+    Log:debug("ReadStream: %s farm context - ownerFarmId=%s, playerFarmId=%s, spectator=%s",
+        placeableName, tostring(ownerFarmId), tostring(playerFarmId), tostring(isSpectator))
 
     -- Read custom capacity data if present
-    if streamReadBool(streamId) then
+    local hasCustomCapacity = streamReadBool(streamId)
+    Log:debug("ReadStream: %s hasCustomCapacity=%s", placeableName, tostring(hasCustomCapacity))
+
+    if hasCustomCapacity then
         local entry = {
             fillTypes = {},
             husbandryFood = nil,
@@ -228,34 +254,47 @@ function RmPlaceableStorageCapacity:onReadStream(streamId, connection)
 
         -- Read fill type capacities
         local fillTypeCount = streamReadInt32(streamId)
-        for _ = 1, fillTypeCount do
+        Log:debug("ReadStream: %s fillTypeCount=%d", placeableName, fillTypeCount)
+        for i = 1, fillTypeCount do
             local fillTypeIndex = streamReadInt32(streamId)
             local capacity = streamReadInt32(streamId)
             entry.fillTypes[fillTypeIndex] = capacity
         end
 
         -- Read husbandry food capacity
-        if streamReadBool(streamId) then
+        local hasHusbandryFood = streamReadBool(streamId)
+        if hasHusbandryFood then
             entry.husbandryFood = streamReadInt32(streamId)
         end
 
         -- Read shared capacity
-        if streamReadBool(streamId) then
+        local hasSharedCapacity = streamReadBool(streamId)
+        if hasSharedCapacity then
             entry.sharedCapacity = streamReadInt32(streamId)
         end
+
+        -- Count total capacities read
+        local totalCount = fillTypeCount
+        if entry.husbandryFood ~= nil then totalCount = totalCount + 1 end
+        if entry.sharedCapacity ~= nil then totalCount = totalCount + 1 end
 
         if uniqueId ~= nil then
             RmAdjustStorageCapacity.customCapacities[uniqueId] = entry
 
-            -- Apply the custom capacities
-            RmAdjustStorageCapacity:applyCapacitiesToPlaceable(self, entry)
+            -- Apply the custom capacities (wrapped in pcall for safety)
+            local applySuccess, applyErr = pcall(function()
+                RmAdjustStorageCapacity:applyCapacitiesToPlaceable(self, entry)
+            end)
 
-            -- Count total capacities applied
-            local totalCount = fillTypeCount
-            if entry.husbandryFood ~= nil then totalCount = totalCount + 1 end
-            if entry.sharedCapacity ~= nil then totalCount = totalCount + 1 end
-
-            Log:debug("ReadStream: Applied %d custom capacities for %s", totalCount, self:getName())
+            if applySuccess then
+                Log:debug("ReadStream: Applied %d custom capacities for %s", totalCount, placeableName)
+            else
+                Log:error("ReadStream: Failed to apply capacities to %s: %s", placeableName, tostring(applyErr))
+            end
+        else
+            -- Log warning when uniqueId is nil (data read correctly but can't store)
+            Log:warning("ReadStream: %s has nil uniqueId, read %d capacities but cannot store",
+                placeableName, totalCount)
         end
     end
 end

@@ -534,7 +534,28 @@ function RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCap
     return applied > 0
 end
 
---- Apply capacity to HusbandryFood (special handling for network bits)
+--- Apply capacity to HusbandryFood
+--- NOTE: We intentionally do NOT modify FILLLEVEL_NUM_BITS here.
+---
+--- MULTIPLAYER STREAM CORRUPTION BUG (discovered 2024-12-20):
+--- PlaceableHusbandryFood.onWriteStream/onReadStream use FILLLEVEL_NUM_BITS to serialize
+--- fill levels. This value is calculated from spec.capacity in onLoad (from XML).
+---
+--- If we modify FILLLEVEL_NUM_BITS on the server after applying custom capacity:
+---   Server: capacity=50000 -> FILLLEVEL_NUM_BITS=16
+---   Client: capacity=5000 (XML) -> FILLLEVEL_NUM_BITS=13
+---   Server writes 16 bits per fill type, client reads 13 bits -> STREAM CORRUPTION
+---   Subsequent specializations (e.g., PlaceableHusbandryFence) read garbage -> crash
+---
+--- CURRENT LIMITATION:
+--- Fill levels above original XML capacity's bit range will be truncated during MP sync.
+--- Example: Original capacity 5000 (13 bits, max 8191). If fill=10000, MP syncs as 1808.
+--- This causes data loss but prevents crashes. Works correctly in singleplayer.
+---
+--- FUTURE IMPROVEMENT:
+--- Use Event-based sync to update client's capacity BEFORE PlaceableHusbandryFood's
+--- ReadStream runs, so both sides calculate the same FILLLEVEL_NUM_BITS.
+---
 ---@param spec table The spec_husbandryFood table
 ---@param newCapacity number The new capacity
 function RmAdjustStorageCapacity:applyHusbandryFoodCapacity(spec, newCapacity)
@@ -545,7 +566,7 @@ function RmAdjustStorageCapacity:applyHusbandryFoodCapacity(spec, newCapacity)
     local oldCapacity = spec.capacity
     spec.capacity = newCapacity
 
-    -- Calculate total current fill across all food types
+    -- Calculate total current fill for logging
     local totalFill = 0
     if spec.fillLevels ~= nil then
         for _, level in pairs(spec.fillLevels) do
@@ -553,11 +574,7 @@ function RmAdjustStorageCapacity:applyHusbandryFoodCapacity(spec, newCapacity)
         end
     end
 
-    -- CRITICAL: Use MAX of capacity or current fill for bits calculation
-    -- This prevents MP sync overflow when storage is overfilled (fillLevel > capacity)
-    -- FILLLEVEL_NUM_BITS determines precision for multiplayer fill level sync
-    local bitsBase = math.max(newCapacity, totalFill)
-    spec.FILLLEVEL_NUM_BITS = MathUtil.getNumRequiredBits(bitsBase)
+    -- DO NOT modify FILLLEVEL_NUM_BITS - see function comment for MP stream corruption bug
 
     -- Log overfill situation if present
     if totalFill > newCapacity then
@@ -565,8 +582,8 @@ function RmAdjustStorageCapacity:applyHusbandryFoodCapacity(spec, newCapacity)
             totalFill, newCapacity)
     end
 
-    Log:debug("Applied HusbandryFood capacity: %d -> %d (bits: %d, based on max(%d, %d))",
-        oldCapacity, newCapacity, spec.FILLLEVEL_NUM_BITS, newCapacity, totalFill)
+    Log:debug("Applied HusbandryFood capacity: %d -> %d (fillLevel: %d, bits unchanged: %d)",
+        oldCapacity, newCapacity, totalFill, spec.FILLLEVEL_NUM_BITS)
 end
 
 -- ============================================================================
