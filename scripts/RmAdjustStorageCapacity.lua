@@ -1533,6 +1533,8 @@ function RmAdjustStorageCapacity:consoleCommandList()
             if custom ~= nil then
                 if ft.fillTypeIndex == -1 and custom.husbandryFood ~= nil then
                     customMark = " *"
+                elseif ft.isSharedCapacity and custom.sharedCapacity ~= nil then
+                    customMark = " *"
                 elseif custom.fillTypes ~= nil and custom.fillTypes[ft.fillTypeIndex] ~= nil then
                     customMark = " *"
                 end
