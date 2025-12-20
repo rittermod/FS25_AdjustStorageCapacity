@@ -16,6 +16,7 @@ source(modDirectory .. "scripts/events/RmVehicleCapacitySyncEvent.lua")
 source(modDirectory .. "scripts/gui/RmStorageCapacityDialog.lua")
 source(modDirectory .. "scripts/gui/RmVehicleCapacityDialog.lua")
 source(modDirectory .. "scripts/RmMenuIntegration.lua")
+source(modDirectory .. "scripts/vehicles/RmVehicleCapacityActivatable.lua")
 source(modDirectory .. "scripts/vehicles/RmVehicleDetectionHandler.lua")
 
 -- Get logger for this module

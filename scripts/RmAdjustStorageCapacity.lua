@@ -32,16 +32,14 @@ RmAdjustStorageCapacity.originalCapacities = {}
 RmAdjustStorageCapacity.vehicleCapacities = {}
 
 -- ============================================================================
--- Central Keybind Management
+-- Placeable Keybind Management
 -- ============================================================================
--- Manages a single K keybind registration to prevent conflicts between
--- placeable and vehicle handlers. Both systems call this central manager.
+-- Manages K keybind registration for placeable info triggers.
+-- Note: Vehicle keybinds use the activatableObjectsSystem instead.
 
 RmAdjustStorageCapacity.keybind = {
     actionEventId = nil,    -- Current action event ID
-    currentTarget = nil,    -- {type="placeable"|"vehicle", object=table}
-    PRIORITY_PLACEABLE = 2, -- Higher priority (explicit info trigger)
-    PRIORITY_VEHICLE = 1    -- Lower priority (proximity detection)
+    currentTarget = nil     -- {type="placeable", object=table}
 }
 
 -- Console error messages (hardcoded English - console is developer-facing)
@@ -1370,33 +1368,22 @@ function RmAdjustStorageCapacity:showCapacityDialog(placeable)
 end
 
 -- ============================================================================
--- Central Keybind Management Functions
+-- Placeable Keybind Management Functions
 -- ============================================================================
 
---- Register the K keybind for a target (placeable or vehicle)
---- Only one registration can be active at a time. Higher priority wins.
----@param targetType string "placeable" or "vehicle"
----@param targetObject table The placeable or vehicle object
+--- Register the K keybind for a placeable
+--- Only one registration can be active at a time.
+--- Note: Vehicle keybinds use the activatableObjectsSystem instead.
+---@param targetType string "placeable" (kept for API compatibility)
+---@param targetObject table The placeable object
 ---@param textKey string The localization key for the keybind text
 ---@return boolean success Whether the registration was successful
 function RmAdjustStorageCapacity:registerKeybind(targetType, targetObject, textKey)
     local kb = self.keybind
-    local newPriority = targetType == "placeable" and kb.PRIORITY_PLACEABLE or kb.PRIORITY_VEHICLE
 
-    -- If we already have a target, check priority
+    -- If we already have a target, unregister it first
     if kb.currentTarget ~= nil then
-        local currentPriority = kb.currentTarget.type == "placeable" and kb.PRIORITY_PLACEABLE or kb.PRIORITY_VEHICLE
-
-        -- If current has higher or equal priority, don't replace
-        if currentPriority >= newPriority then
-            Log:debug("Keybind registration blocked: current %s (priority %d) >= new %s (priority %d)",
-                kb.currentTarget.type, currentPriority, targetType, newPriority)
-            return false
-        end
-
-        -- Higher priority - unregister current first
-        Log:debug("Keybind takeover: %s (priority %d) replacing %s (priority %d)",
-            targetType, newPriority, kb.currentTarget.type, currentPriority)
+        Log:debug("Keybind replacement: unregistering current target")
         self:unregisterKeybindInternal()
     end
 
@@ -1412,7 +1399,7 @@ function RmAdjustStorageCapacity:registerKeybind(targetType, targetObject, textK
     )
 
     if actionEventId == nil then
-        Log:warning("Failed to register K keybind for %s", targetType)
+        Log:warning("Failed to register K keybind for placeable")
         return false
     end
 
@@ -1427,14 +1414,14 @@ function RmAdjustStorageCapacity:registerKeybind(targetType, targetObject, textK
     }
 
     local name = targetObject.getName and targetObject:getName() or "unknown"
-    Log:debug("Registered K keybind for %s: %s", targetType, name)
+    Log:debug("Registered K keybind for placeable: %s", name)
     return true
 end
 
---- Unregister the K keybind for a specific target
+--- Unregister the K keybind for a specific placeable
 --- Only unregisters if the target matches the current registration
----@param targetType string "placeable" or "vehicle"
----@param targetObject table The placeable or vehicle object
+---@param targetType string "placeable" (kept for API compatibility)
+---@param targetObject table The placeable object
 function RmAdjustStorageCapacity:unregisterKeybind(targetType, targetObject)
     local kb = self.keybind
 
@@ -1443,15 +1430,14 @@ function RmAdjustStorageCapacity:unregisterKeybind(targetType, targetObject)
         return
     end
 
-    if kb.currentTarget.type ~= targetType or kb.currentTarget.object ~= targetObject then
-        Log:debug("Keybind unregister skipped: current=%s, requested=%s",
-            kb.currentTarget.type, targetType)
+    if kb.currentTarget.object ~= targetObject then
+        Log:debug("Keybind unregister skipped: different target")
         return
     end
 
     local name = targetObject.getName and targetObject:getName() or "unknown"
     self:unregisterKeybindInternal()
-    Log:debug("Unregistered K keybind for %s: %s", targetType, name)
+    Log:debug("Unregistered K keybind for placeable: %s", name)
 end
 
 --- Internal function to unregister the keybind (no target check)
@@ -1466,7 +1452,8 @@ function RmAdjustStorageCapacity:unregisterKeybindInternal()
     kb.currentTarget = nil
 end
 
---- Handle K key press - dispatches to appropriate dialog
+--- Handle K key press - opens placeable capacity dialog
+--- Note: Vehicle keybinds are handled by RmVehicleCapacityActivatable instead.
 ---@param actionName string The action name
 ---@param inputValue number The input value
 function RmAdjustStorageCapacity:onKeybindPressed(actionName, inputValue)
@@ -1477,7 +1464,6 @@ function RmAdjustStorageCapacity:onKeybindPressed(actionName, inputValue)
         return
     end
 
-    local targetType = kb.currentTarget.type
     local targetObject = kb.currentTarget.object
 
     if targetObject == nil then
@@ -1486,41 +1472,27 @@ function RmAdjustStorageCapacity:onKeybindPressed(actionName, inputValue)
     end
 
     local name = targetObject.getName and targetObject:getName() or "unknown"
-    Log:debug("K pressed for %s: %s", targetType, name)
+    Log:debug("K pressed for placeable: %s", name)
 
-    if targetType == "placeable" then
-        -- Check permission
-        local canModify, errorKey = self:canModifyCapacity(targetObject)
-        if not canModify then
-            g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
-                g_i18n:getText(errorKey))
-            return
-        end
-
-        -- Show placeable dialog
-        RmStorageCapacityDialog.show(targetObject)
-    elseif targetType == "vehicle" then
-        -- Check permission
-        local canModify, errorKey = self:canModifyVehicleCapacity(targetObject)
-        if not canModify then
-            g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
-                g_i18n:getText(errorKey))
-            return
-        end
-
-        -- Show vehicle dialog
-        RmVehicleCapacityDialog.show(targetObject)
+    -- Check permission
+    local canModify, errorKey = self:canModifyCapacity(targetObject)
+    if not canModify then
+        g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
+            g_i18n:getText(errorKey))
+        return
     end
+
+    -- Show placeable dialog
+    RmStorageCapacityDialog.show(targetObject)
 end
 
---- Check if a specific target currently has the keybind registered
----@param targetType string "placeable" or "vehicle"
----@param targetObject table The placeable or vehicle object
+--- Check if a specific placeable currently has the keybind registered
+---@param targetType string "placeable" (kept for API compatibility)
+---@param targetObject table The placeable object
 ---@return boolean hasKeybind Whether this target has the keybind
 function RmAdjustStorageCapacity:hasKeybind(targetType, targetObject)
     local kb = self.keybind
     return kb.currentTarget ~= nil
-        and kb.currentTarget.type == targetType
         and kb.currentTarget.object == targetObject
 end
 
