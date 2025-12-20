@@ -48,6 +48,7 @@ RmAdjustStorageCapacity.keybind = {
 local CONSOLE_ERRORS = {
     rm_asc_error_notOwner = "You don't own this storage",
     rm_asc_error_notManager = "You must be farm manager to change capacities",
+    rm_asc_error_notModifiable = "This storage cannot be modified",
     rm_asc_error_notFound = "Storage not found",
     rm_asc_error_invalidCapacity = "Invalid capacity value",
     rm_asc_error_unknown = "An unknown error occurred"
@@ -293,6 +294,11 @@ function RmAdjustStorageCapacity:canModifyCapacity(placeable)
     local ownerFarmId = placeable:getOwnerFarmId()
     local playerFarmId = g_currentMission:getFarmId()
     local isMultiplayer = g_currentMission.missionDynamicInfo.isMultiplayer
+
+    -- Block modification of unowned/spectator assets (even admins)
+    if ownerFarmId == 0 or ownerFarmId == FarmManager.SPECTATOR_FARM_ID then
+        return false, "rm_asc_error_notModifiable"
+    end
 
     -- Check admin/server status first (can modify ANY storage)
     if isMultiplayer then
@@ -929,6 +935,11 @@ function RmAdjustStorageCapacity:canModifyVehicleCapacity(vehicle)
     local ownerFarmId = vehicle:getOwnerFarmId()
     local playerFarmId = g_currentMission:getFarmId()
     local isMultiplayer = g_currentMission.missionDynamicInfo.isMultiplayer
+
+    -- Block modification of unowned/spectator assets (even admins)
+    if ownerFarmId == 0 or ownerFarmId == FarmManager.SPECTATOR_FARM_ID then
+        return false, "rm_asc_error_notModifiable"
+    end
 
     -- Check admin/server status first (can modify ANY vehicle)
     if isMultiplayer then

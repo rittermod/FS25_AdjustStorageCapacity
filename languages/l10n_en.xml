@@ -12,6 +12,7 @@
         <text name="rm_asc_error_notOwner" text="You don't own this storage"/>
         <text name="rm_asc_error_notFound" text="Storage not found"/>
         <text name="rm_asc_error_notManager" text="You must be farm manager to change capacity"/>
+        <text name="rm_asc_error_notModifiable" text="This storage cannot be modified"/>
         <text name="rm_asc_error_invalidCapacity" text="Invalid capacity value"/>
         <text name="rm_asc_error_noFillTypes" text="No fill types found for this storage"/>
         <text name="rm_asc_error_unknown" text="An unknown error occurred"/>

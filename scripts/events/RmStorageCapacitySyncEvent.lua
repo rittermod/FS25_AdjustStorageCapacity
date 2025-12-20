@@ -19,6 +19,7 @@ RmStorageCapacitySyncEvent.ERROR_NOT_FOUND = 1
 RmStorageCapacitySyncEvent.ERROR_NOT_OWNER = 2
 RmStorageCapacitySyncEvent.ERROR_NOT_MANAGER = 3
 RmStorageCapacitySyncEvent.ERROR_INVALID_CAPACITY = 4
+RmStorageCapacitySyncEvent.ERROR_NOT_MODIFIABLE = 5
 RmStorageCapacitySyncEvent.ERROR_UNKNOWN = 255
 
 local RmStorageCapacitySyncEvent_mt = Class(RmStorageCapacitySyncEvent, Event)
@@ -157,8 +158,14 @@ function RmStorageCapacitySyncEvent:runOnServer(connection)
                 local ownerFarmId = placeable:getOwnerFarmId()
                 local hasPermission = false
 
-                -- Check admin first
-                if user:getIsMasterUser() then
+                -- Block modification of unowned/spectator assets (even admins)
+                if ownerFarmId == 0 or ownerFarmId == FarmManager.SPECTATOR_FARM_ID then
+                    errorCode = RmStorageCapacitySyncEvent.ERROR_NOT_MODIFIABLE
+                    Log:warning("Cannot modify asset owned by farm %d", ownerFarmId)
+                end
+
+                -- Check admin first (only if not already blocked)
+                if errorCode == RmStorageCapacitySyncEvent.ERROR_UNKNOWN and user:getIsMasterUser() then
                     hasPermission = true
                     Log:debug("Player %s is admin", playerName)
                 end
@@ -319,6 +326,8 @@ function RmStorageCapacitySyncEvent:getErrorMessageKey()
         return "rm_asc_error_notManager"
     elseif self.errorCode == RmStorageCapacitySyncEvent.ERROR_INVALID_CAPACITY then
         return "rm_asc_error_invalidCapacity"
+    elseif self.errorCode == RmStorageCapacitySyncEvent.ERROR_NOT_MODIFIABLE then
+        return "rm_asc_error_notModifiable"
     else
         return "rm_asc_error_unknown"
     end
