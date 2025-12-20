@@ -206,6 +206,8 @@ function RmStorageCapacityDialog:refreshFillTypeList()
             return (a.fillTypeName or "") < (b.fillTypeName or "")
         end)
     end
+
+    Log:debug("Refreshed fill type list: %d entries", #self.fillTypeEntries)
 end
 
 --- Updates the visibility of the empty state message
