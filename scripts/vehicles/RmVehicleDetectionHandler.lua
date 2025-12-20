@@ -2,7 +2,11 @@
 -- Author: Ritter
 --
 -- Detects nearby vehicles using distance checks in update loop.
--- When player walks near a vehicle with FillUnit, shows K keybind to adjust capacity.
+-- When player walks near a supported vehicle, creates an activatable that
+-- uses FS25's activatableObjectsSystem for proper input context handling.
+--
+-- This solves the K keybind getting stuck when entering/exiting vehicles
+-- by letting the game's built-in system handle input context transitions.
 
 -- Get logger for this module
 local Log = RmLogging.getLogger("AdjustStorageCapacity")
@@ -16,8 +20,7 @@ RmVehicleDetectionHandler.CLEANUP_INTERVAL = 2000   -- ms
 -- State
 RmVehicleDetectionHandler.initialized = false
 RmVehicleDetectionHandler.isActive = false
-RmVehicleDetectionHandler.nearbyVehicles = {}       -- {[vehicle] = timestamp}
-RmVehicleDetectionHandler.currentVehicle = nil      -- Vehicle currently showing keybind for
+RmVehicleDetectionHandler.vehicleActivatables = {}  -- {[vehicle] = activatable}
 RmVehicleDetectionHandler.lastCleanupTime = 0
 RmVehicleDetectionHandler.loggedVehicles = {}       -- {[vehicle] = true} - tracks which vehicles we've logged
 
@@ -41,7 +44,7 @@ function RmVehicleDetectionHandler.init()
         RmVehicleDetectionHandler.startDetection()
     end
 
-    Log:info("Vehicle detection handler initialized")
+    Log:info("Vehicle detection handler initialized (using activatable pattern)")
 end
 
 --- Called when player spawns/enters
@@ -85,13 +88,11 @@ function RmVehicleDetectionHandler.stopDetection()
         return
     end
 
-    -- Clear keybind
-    RmVehicleDetectionHandler.hideKeybind()
+    -- Remove all activatables
+    RmVehicleDetectionHandler.removeAllActivatables()
 
-    -- Clear tracked vehicles
-    RmVehicleDetectionHandler.nearbyVehicles = {}
-    RmVehicleDetectionHandler.currentVehicle = nil
-    RmVehicleDetectionHandler.loggedVehicles = {}  -- Clear debug log cache
+    -- Clear tracking state
+    RmVehicleDetectionHandler.loggedVehicles = {}
 
     -- Unregister from update
     if g_currentMission ~= nil then
@@ -99,6 +100,17 @@ function RmVehicleDetectionHandler.stopDetection()
     end
 
     RmVehicleDetectionHandler.isActive = false
+    Log:debug("Vehicle proximity detection stopped")
+end
+
+--- Remove all tracked activatables from the system
+function RmVehicleDetectionHandler.removeAllActivatables()
+    for vehicle, activatable in pairs(RmVehicleDetectionHandler.vehicleActivatables) do
+        if activatable ~= nil and g_currentMission ~= nil and g_currentMission.activatableObjectsSystem ~= nil then
+            g_currentMission.activatableObjectsSystem:removeActivatable(activatable)
+        end
+    end
+    RmVehicleDetectionHandler.vehicleActivatables = {}
 end
 
 --- Update function - check proximity to vehicles
@@ -117,23 +129,16 @@ function RmVehicleDetectionHandler:update(dt)
         return
     end
 
-    -- Don't detect when player is in a vehicle
-    if player.isEntered == false then
-        -- Player is in a vehicle, hide keybind if showing
-        if RmVehicleDetectionHandler.currentVehicle ~= nil then
-            RmVehicleDetectionHandler.hideKeybind()
-            RmVehicleDetectionHandler.currentVehicle = nil
-            RmVehicleDetectionHandler.nearbyVehicles = {}
-        end
-        return
-    end
+    -- NOTE: We no longer check player.isEntered here.
+    -- The activatableObjectsSystem handles input context transitions automatically.
+    -- When player enters a vehicle, context changes from PLAYER to VEHICLE,
+    -- and registerCustomInput is called with the new context (which we ignore).
 
     local px, py, pz = getWorldTranslation(player.rootNode)
     local radius = RmVehicleDetectionHandler.PROXIMITY_RADIUS
 
-    -- Find closest valid vehicle
-    local closestVehicle = nil
-    local closestDistance = radius + 1
+    -- Track which vehicles are currently in range
+    local vehiclesInRange = {}
 
     -- FS25 stores vehicles in vehicleSystem.vehicles
     local vehicleList = {}
@@ -146,21 +151,21 @@ function RmVehicleDetectionHandler:update(dt)
             local vx, vy, vz = getWorldTranslation(vehicle.rootNode)
             local distance = MathUtil.vector3Length(vx - px, vy - py, vz - pz)
 
-            if distance <= radius and distance < closestDistance then
-                closestVehicle = vehicle
-                closestDistance = distance
+            if distance <= radius then
+                vehiclesInRange[vehicle] = true
+
+                -- Add activatable if not already tracked
+                if RmVehicleDetectionHandler.vehicleActivatables[vehicle] == nil then
+                    RmVehicleDetectionHandler.onVehicleEnterRange(vehicle)
+                end
             end
         end
     end
 
-    -- Update state based on detection
-    if closestVehicle ~= nil then
-        if RmVehicleDetectionHandler.currentVehicle ~= closestVehicle then
-            RmVehicleDetectionHandler.onVehicleEnterRange(closestVehicle)
-        end
-    else
-        if RmVehicleDetectionHandler.currentVehicle ~= nil then
-            RmVehicleDetectionHandler.onVehicleLeaveRange(RmVehicleDetectionHandler.currentVehicle)
+    -- Remove activatables for vehicles that left range
+    for vehicle, activatable in pairs(RmVehicleDetectionHandler.vehicleActivatables) do
+        if not vehiclesInRange[vehicle] then
+            RmVehicleDetectionHandler.onVehicleLeaveRange(vehicle)
         end
     end
 end
@@ -243,39 +248,51 @@ function RmVehicleDetectionHandler.canHandleVehicle(vehicle)
 end
 
 --- Called when a vehicle enters detection range
+--- Creates an activatable and adds it to the activatableObjectsSystem
 ---@param vehicle table The vehicle
 function RmVehicleDetectionHandler.onVehicleEnterRange(vehicle)
     Log:debug("Vehicle entered range: %s", vehicle:getName())
 
-    RmVehicleDetectionHandler.nearbyVehicles[vehicle] = g_currentMission.time
-    RmVehicleDetectionHandler.currentVehicle = vehicle
+    -- Create activatable for this vehicle
+    local activatable = RmVehicleCapacityActivatable.new(vehicle)
+    RmVehicleDetectionHandler.vehicleActivatables[vehicle] = activatable
 
-    -- Show keybind
-    RmVehicleDetectionHandler.showKeybind(vehicle)
+    -- Add to activatable system - it will handle input registration
+    if g_currentMission ~= nil and g_currentMission.activatableObjectsSystem ~= nil then
+        g_currentMission.activatableObjectsSystem:addActivatable(activatable)
+        Log:debug("Added activatable for vehicle: %s", vehicle:getName())
+    end
 end
 
 --- Called when a vehicle leaves detection range
+--- Removes the activatable from the activatableObjectsSystem
 ---@param vehicle table The vehicle
 function RmVehicleDetectionHandler.onVehicleLeaveRange(vehicle)
     Log:debug("Vehicle left range: %s", vehicle:getName())
 
-    RmVehicleDetectionHandler.nearbyVehicles[vehicle] = nil
-    RmVehicleDetectionHandler.hideKeybind()
-    RmVehicleDetectionHandler.currentVehicle = nil
+    local activatable = RmVehicleDetectionHandler.vehicleActivatables[vehicle]
+    if activatable ~= nil then
+        -- Remove from activatable system - it will handle input cleanup
+        if g_currentMission ~= nil and g_currentMission.activatableObjectsSystem ~= nil then
+            g_currentMission.activatableObjectsSystem:removeActivatable(activatable)
+            Log:debug("Removed activatable for vehicle: %s", vehicle:getName())
+        end
+    end
+
+    RmVehicleDetectionHandler.vehicleActivatables[vehicle] = nil
 end
 
---- Cleanup vehicles that are no longer valid
+--- Cleanup vehicles that are no longer valid (deleted, etc.)
 function RmVehicleDetectionHandler.cleanupStaleVehicles()
-    for vehicle, _ in pairs(RmVehicleDetectionHandler.nearbyVehicles) do
+    for vehicle, activatable in pairs(RmVehicleDetectionHandler.vehicleActivatables) do
         -- Remove if vehicle is deleted
         if vehicle == nil or vehicle.rootNode == nil or not entityExists(vehicle.rootNode) then
-            RmVehicleDetectionHandler.nearbyVehicles[vehicle] = nil
-            RmVehicleDetectionHandler.loggedVehicles[vehicle] = nil  -- Clear from debug log cache
-            if RmVehicleDetectionHandler.currentVehicle == vehicle then
-                -- Unregister via central manager before clearing currentVehicle
-                RmAdjustStorageCapacity:unregisterKeybind("vehicle", vehicle)
-                RmVehicleDetectionHandler.currentVehicle = nil
+            Log:debug("Cleaning up stale vehicle activatable (vehicle deleted)")
+            if activatable ~= nil and g_currentMission ~= nil and g_currentMission.activatableObjectsSystem ~= nil then
+                g_currentMission.activatableObjectsSystem:removeActivatable(activatable)
             end
+            RmVehicleDetectionHandler.vehicleActivatables[vehicle] = nil
+            RmVehicleDetectionHandler.loggedVehicles[vehicle] = nil
         end
     end
 
@@ -284,29 +301,5 @@ function RmVehicleDetectionHandler.cleanupStaleVehicles()
         if vehicle == nil or vehicle.rootNode == nil or not entityExists(vehicle.rootNode) then
             RmVehicleDetectionHandler.loggedVehicles[vehicle] = nil
         end
-    end
-end
-
---- Show the K keybind for adjusting vehicle capacity
---- Uses central keybind manager (vehicle has lower priority than placeable)
----@param vehicle table The vehicle
-function RmVehicleDetectionHandler.showKeybind(vehicle)
-    -- Check permission first
-    local canModify, _ = RmAdjustStorageCapacity:canModifyVehicleCapacity(vehicle)
-    if not canModify then
-        Log:debug("No permission to modify vehicle %s", vehicle:getName())
-        return
-    end
-
-    -- Register via central keybind manager (vehicle has lower priority)
-    RmAdjustStorageCapacity:registerKeybind("vehicle", vehicle, "rm_asc_action_adjustVehicleCapacity")
-end
-
---- Hide the K keybind
---- Uses central keybind manager
-function RmVehicleDetectionHandler.hideKeybind()
-    local vehicle = RmVehicleDetectionHandler.currentVehicle
-    if vehicle ~= nil then
-        RmAdjustStorageCapacity:unregisterKeybind("vehicle", vehicle)
     end
 end
