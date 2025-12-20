@@ -56,7 +56,7 @@ local CONSOLE_ERRORS = {
 
 -- Get logger for this module (prefix auto-generated with context suffix)
 local Log = RmLogging.getLogger("AdjustStorageCapacity")
--- Log:setLevel(RmLogging.LOG_LEVEL.DEBUG) -- TODO: Change to INFO for release
+Log:setLevel(RmLogging.LOG_LEVEL.DEBUG) -- TODO: Change to INFO for release
 
 -- ============================================================================
 -- Storage Enumeration and Type Detection
@@ -987,8 +987,10 @@ function RmAdjustStorageCapacity:findVehicleByUniqueId(uniqueId)
 end
 
 --- Get all vehicles with fill units that can be modified
+---@param onlyPermitted boolean|nil Filter to only include vehicles the player can modify (default: true)
 ---@return table Array of vehicles with fill units
-function RmAdjustStorageCapacity:getAllVehiclesWithFillUnits()
+function RmAdjustStorageCapacity:getAllVehiclesWithFillUnits(onlyPermitted)
+    if onlyPermitted == nil then onlyPermitted = true end
     local vehicles = {}
 
     -- FS25 stores vehicles in vehicleSystem.vehicles, not g_currentMission.vehicles
@@ -1004,14 +1006,16 @@ function RmAdjustStorageCapacity:getAllVehiclesWithFillUnits()
         -- Use central eligibility check
         local isSupported, reason = RmVehicleStorageCapacity.isVehicleSupported(vehicle)
         if isSupported then
-            table.insert(vehicles, vehicle)
+            if not onlyPermitted or self:canModifyVehicleCapacity(vehicle) then
+                table.insert(vehicles, vehicle)
+            end
         else
             Log:trace("Skipping vehicle (%s): %s", reason, vehicle:getName() or "unknown")
         end
     end
 
-    Log:debug("getAllVehiclesWithFillUnits: Checked %d vehicles, found %d supported",
-        totalVehicles, #vehicles)
+    Log:debug("getAllVehiclesWithFillUnits: Checked %d vehicles, found %d supported (onlyPermitted=%s)",
+        totalVehicles, #vehicles, tostring(onlyPermitted))
 
     return vehicles
 end
@@ -1032,14 +1036,18 @@ function RmAdjustStorageCapacity:getStorageByIndex(index)
 end
 
 --- Get all placeables that have modifiable storage
+---@param onlyPermitted boolean|nil Filter to only include placeables the player can modify (default: true)
 ---@return table Array of storage placeables
-function RmAdjustStorageCapacity:getAllStoragePlaceables()
+function RmAdjustStorageCapacity:getAllStoragePlaceables(onlyPermitted)
+    if onlyPermitted == nil then onlyPermitted = true end
     local storages = {}
 
     if g_currentMission.placeableSystem ~= nil then
         for _, placeable in ipairs(g_currentMission.placeableSystem.placeables or {}) do
             if self:hasModifiableStorage(placeable) then
-                table.insert(storages, placeable)
+                if not onlyPermitted or self:canModifyCapacity(placeable) then
+                    table.insert(storages, placeable)
+                end
             end
         end
     end
