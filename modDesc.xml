@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="100">
     <author>Ritter</author>
-    <version>0.3.1.0</version>
+    <version>0.3.2.0</version>
     <title>
         <en>Adjust Storage Capacity</en>
     </title>
@@ -17,6 +17,7 @@ Features:
 - Press K near any supported storage or vehicle to open capacity dialog
 - Press K in Production or Animals menu to adjust selected facility
 - Edit capacity for each fill type or fill unit
+- Capacity protection: clamps to fill level to prevent data loss
 - Configurable key binding for opening dialogs
 - Multiplayer support with permissions
 
@@ -36,6 +37,13 @@ Not Supported:
 Console commands available.
 
 Changelog:
+0.3.2.0 (Alpha):
+- Added capacity protection: clamps to fill level to prevent data loss
+- Fixed K keybind getting stuck when entering/exiting vehicles
+- Added permission blocking for NPC farm and spectator assets
+- Console lists now show only assets you have permission to modify
+- Fixed multiplayer sync corruption when adjusting animal food trough capacity
+
 0.3.1.0 (Alpha):
 - Fixed K keybind conflict when near both placeable and vehicle
 

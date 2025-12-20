@@ -18,6 +18,7 @@ Supports multiplayer with a permission system - server admins can modify any sto
 - **Vehicle support:** Walk near any vehicle with fill units to adjust capacities
 - **Per-filltype editing:** Adjust capacity for each fill type or fill unit individually
 - **Inline text input:** Double-click or press Enter on a row to edit
+- **Capacity protection:** Automatically clamps to current fill level to prevent data loss
 - **Configurable key binding:** Change the default K key in game settings
 - **Multiplayer support:** Permission system for server admins and farm managers
 - **Console commands:** Available for advanced users
@@ -125,10 +126,12 @@ ascResetVehicle 1           (reset all fill units)
 
 The mod supports multiplayer with a permission system:
 
-- **Server/Host:** Can modify any storage
-- **Admin (Master User):** Can modify any storage
+- **Server/Host:** Can modify any owned storage
+- **Admin (Master User):** Can modify any owned storage
 - **Farm Manager:** Can modify their own farm's storage
 - **Farm Worker:** Cannot modify storage (must be farm manager)
+
+**Note:** NPC farm (Farm 0) and spectator assets cannot be modified by any player.
 
 ## Compatibility
 
@@ -137,6 +140,15 @@ The mod supports multiplayer with a permission system:
 - **Platform**: PC (Windows/macOS)
 
 ## Changelog
+
+### 0.3.2.0 (Alpha)
+
+- Added capacity protection: capacity now clamps to current fill level to prevent data loss
+- Fixed K keybind getting stuck on screen when entering/exiting vehicles
+- Added permission blocking for NPC farm (Farm 0) and spectator assets
+- Console lists now show only assets you have permission to modify
+- Fixed shared capacity marker (*) not showing in console list output
+- Fixed multiplayer sync corruption when adjusting animal food trough capacity
 
 ### 0.3.1.0 (Alpha)
 

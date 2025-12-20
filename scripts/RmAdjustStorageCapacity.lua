@@ -38,8 +38,8 @@ RmAdjustStorageCapacity.vehicleCapacities = {}
 -- Note: Vehicle keybinds use the activatableObjectsSystem instead.
 
 RmAdjustStorageCapacity.keybind = {
-    actionEventId = nil,    -- Current action event ID
-    currentTarget = nil     -- {type="placeable", object=table}
+    actionEventId = nil, -- Current action event ID
+    currentTarget = nil  -- {type="placeable", object=table}
 }
 
 -- Console error messages (hardcoded English - console is developer-facing)
@@ -54,7 +54,7 @@ local CONSOLE_ERRORS = {
 
 -- Get logger for this module (prefix auto-generated with context suffix)
 local Log = RmLogging.getLogger("AdjustStorageCapacity")
-Log:setLevel(RmLogging.LOG_LEVEL.DEBUG) -- TODO: Change to INFO for release
+-- Log:setLevel(RmLogging.LOG_LEVEL.DEBUG) -- TODO: Change to INFO for release
 
 -- ============================================================================
 -- Storage Enumeration and Type Detection
