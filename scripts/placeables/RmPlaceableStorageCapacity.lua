@@ -38,6 +38,26 @@ function RmPlaceableStorageCapacity.prerequisitesPresent(specializations)
     return false
 end
 
+--- Register savegame XML paths for this specialization
+--- Called during type registration to register all paths we write to savegame
+---@param schema table The savegame XML schema
+---@param basePath string Base path for this specialization (e.g., "placeables.placeable(?).MOD.specName")
+function RmPlaceableStorageCapacity.registerSavegameXMLPaths(schema, basePath)
+    -- Register the paths we write in saveToXMLFile
+    -- Our data is stored under basePath.rmAdjustStorageCapacity
+    local modKey = basePath .. ".rmAdjustStorageCapacity"
+
+    -- Fill type capacities
+    schema:register(XMLValueType.STRING, modKey .. ".fillTypes.fillType(?)#name", "Fill type name")
+    schema:register(XMLValueType.INT, modKey .. ".fillTypes.fillType(?)#capacity", "Custom capacity for fill type")
+
+    -- Husbandry food capacity
+    schema:register(XMLValueType.INT, modKey .. ".husbandryFood#capacity", "Custom capacity for husbandry food")
+
+    -- Shared capacity (for multi-fill-type storages)
+    schema:register(XMLValueType.INT, modKey .. ".sharedCapacity#value", "Custom shared capacity")
+end
+
 --- Register event listeners for this specialization
 function RmPlaceableStorageCapacity.registerEventListeners(placeableType)
     SpecializationUtil.registerEventListener(placeableType, "onLoad", RmPlaceableStorageCapacity)
@@ -45,12 +65,18 @@ function RmPlaceableStorageCapacity.registerEventListeners(placeableType)
     SpecializationUtil.registerEventListener(placeableType, "onDelete", RmPlaceableStorageCapacity)
     SpecializationUtil.registerEventListener(placeableType, "onReadStream", RmPlaceableStorageCapacity)
     SpecializationUtil.registerEventListener(placeableType, "onWriteStream", RmPlaceableStorageCapacity)
+    -- Savegame hooks - critical for applying capacity BEFORE fill levels load
+    SpecializationUtil.registerEventListener(placeableType, "loadFromXMLFile", RmPlaceableStorageCapacity)
+    SpecializationUtil.registerEventListener(placeableType, "saveToXMLFile", RmPlaceableStorageCapacity)
     -- PlaceableInfoTrigger events - fired when player enters/leaves the info trigger area
     SpecializationUtil.registerEventListener(placeableType, "onInfoTriggerEnter", RmPlaceableStorageCapacity)
     SpecializationUtil.registerEventListener(placeableType, "onInfoTriggerLeave", RmPlaceableStorageCapacity)
 end
 
 --- Called when placeable is loaded
+--- CRITICAL TIMING: Our onLoad runs AFTER PlaceableSilo:onLoad (specs fire in registration order).
+--- PlaceableSilo:onLoad creates the Storage objects. So storages EXIST when our onLoad runs!
+--- Custom capacities MUST be applied here in onLoad, BEFORE PlaceableSilo:loadFromXMLFile loads fill levels.
 function RmPlaceableStorageCapacity:onLoad(savegame)
     local spec = self[RmPlaceableStorageCapacity.SPEC_TABLE_NAME]
     if spec == nil then
@@ -59,10 +85,84 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
     end
 
     spec.storageTypes = {} -- Which storage types this placeable has
+    spec.loadedFromSavegame = false
 
+    local placeableName = self:getName() or "Unknown"
     local ownerFarmId = self:getOwnerFarmId()
     Log:debug("onLoad: %s (uniqueId=%s, ownerFarmId=%s)",
-        self:getName(), tostring(self.uniqueId), tostring(ownerFarmId))
+        placeableName, tostring(self.uniqueId), tostring(ownerFarmId))
+
+    -- Load and apply custom capacity from savegame (server only)
+    -- This MUST happen in onLoad, BEFORE PlaceableSilo:loadFromXMLFile loads fill levels
+    if g_server ~= nil and savegame ~= nil then
+        local uniqueId = self.uniqueId
+        if uniqueId == nil then
+            Log:debug("onLoad: %s has nil uniqueId, skipping savegame load", placeableName)
+            return
+        end
+
+        -- Construct path to our embedded data
+        -- Format: placeables.placeable(N).MODNAME.storageCapacity.rmAdjustStorageCapacity
+        local modKey = savegame.key .. "." .. RmPlaceableStorageCapacity.MOD_NAME .. ".storageCapacity.rmAdjustStorageCapacity"
+        local xmlFile = savegame.xmlFile
+
+        Log:debug("LOAD_SAVEGAME_START: %s (uniqueId=%s, key=%s)", placeableName, uniqueId, modKey)
+
+        if not xmlFile:hasProperty(modKey) then
+            Log:debug("LOAD_SAVEGAME_NONE: No custom capacity data for %s", placeableName)
+            return
+        end
+
+        -- Read from embedded XML
+        local entry = {
+            fillTypes = {},
+            husbandryFood = nil,
+            sharedCapacity = nil
+        }
+
+        -- Read fill type capacities (stored by NAME for cross-session stability)
+        xmlFile:iterate(modKey .. ".fillTypes.fillType", function(_, ftKey)
+            local name = xmlFile:getValue(ftKey .. "#name")
+            local capacity = xmlFile:getValue(ftKey .. "#capacity")
+            if name and capacity then
+                local fillTypeIndex = g_fillTypeManager:getFillTypeIndexByName(name)
+                if fillTypeIndex then
+                    entry.fillTypes[fillTypeIndex] = capacity
+                    Log:debug("LOAD_SAVEGAME: Read fillType %s = %d", name, capacity)
+                else
+                    Log:warning("LOAD_SAVEGAME: Unknown fill type '%s' in savegame", name)
+                end
+            end
+        end)
+
+        -- Read husbandry food capacity
+        entry.husbandryFood = xmlFile:getValue(modKey .. ".husbandryFood#capacity")
+        if entry.husbandryFood then
+            Log:debug("LOAD_SAVEGAME: Read husbandryFood = %d", entry.husbandryFood)
+        end
+
+        -- Read shared capacity
+        entry.sharedCapacity = xmlFile:getValue(modKey .. ".sharedCapacity#value")
+        if entry.sharedCapacity then
+            Log:debug("LOAD_SAVEGAME: Read sharedCapacity = %d", entry.sharedCapacity)
+        end
+
+        -- Apply if we have data
+        if next(entry.fillTypes) or entry.husbandryFood or entry.sharedCapacity then
+            RmAdjustStorageCapacity.customCapacities[uniqueId] = entry
+            spec.loadedFromSavegame = true
+
+            local applySuccess, applyErr = pcall(function()
+                RmAdjustStorageCapacity:applyCapacitiesToPlaceable(self, entry)
+            end)
+
+            if applySuccess then
+                Log:info("LOAD_SAVEGAME: Applied capacity for %s (BEFORE fill levels load)", placeableName)
+            else
+                Log:error("LOAD_SAVEGAME: Failed to apply capacity to %s: %s", placeableName, tostring(applyErr))
+            end
+        end
+    end
 end
 
 --- Called after placeable loads - detect storage types
@@ -297,4 +397,72 @@ function RmPlaceableStorageCapacity:onReadStream(streamId, connection)
                 placeableName, totalCount)
         end
     end
+end
+
+-- ============================================================================
+-- Savegame XML Hooks (RIT-146 fix)
+-- NOTE: Capacity is now applied in onLoad() to ensure it happens BEFORE fill levels load.
+-- This loadFromXMLFile is kept as a no-op for compatibility.
+-- ============================================================================
+
+--- Load custom capacity from placeable's embedded savegame section
+--- NOTE: This fires AFTER PlaceableSilo:loadFromXMLFile, so it's TOO LATE for fill level preservation.
+--- Capacity loading is now done in onLoad() instead. This is kept for compatibility.
+---@param _xmlFile table XMLFile object (unused - capacity loaded in onLoad)
+---@param _key string Base key for this placeable (unused - capacity loaded in onLoad)
+function RmPlaceableStorageCapacity:loadFromXMLFile(_xmlFile, _key)
+    -- Capacity is now loaded in onLoad() to ensure correct timing
+    -- This hook fires too late (after fill levels are loaded and capped)
+    -- We keep this registered for compatibility with the savegame system
+    local spec = self[RmPlaceableStorageCapacity.SPEC_TABLE_NAME]
+    if spec and spec.loadedFromSavegame then
+        Log:debug("LOAD_XML: Skipping %s - already loaded in onLoad", self:getName() or "Unknown")
+    end
+end
+
+--- Save custom capacity to placeable's embedded savegame section
+---@param xmlFile table XMLFile object (new API with methods)
+---@param key string The base key for this placeable in the savegame XML
+---@param usedModNames table Array to add mod name if we write data
+function RmPlaceableStorageCapacity:saveToXMLFile(xmlFile, key, usedModNames)
+    local uniqueId = self.uniqueId
+    if uniqueId == nil then
+        return
+    end
+
+    local entry = RmAdjustStorageCapacity.customCapacities[uniqueId]
+    if entry == nil then
+        return  -- No custom capacity for this placeable
+    end
+
+    local placeableName = self:getName() or "Unknown"
+    local modKey = key .. ".rmAdjustStorageCapacity"
+
+    -- Write fill type capacities (by NAME for cross-session stability)
+    local ftIndex = 0
+    for fillTypeIndex, capacity in pairs(entry.fillTypes or {}) do
+        local fillType = g_fillTypeManager:getFillTypeByIndex(fillTypeIndex)
+        if fillType then
+            local ftKey = string.format("%s.fillTypes.fillType(%d)", modKey, ftIndex)
+            xmlFile:setValue(ftKey .. "#name", fillType.name)
+            xmlFile:setValue(ftKey .. "#capacity", capacity)
+            ftIndex = ftIndex + 1
+        end
+    end
+
+    -- Write husbandry food capacity
+    if entry.husbandryFood then
+        xmlFile:setValue(modKey .. ".husbandryFood#capacity", entry.husbandryFood)
+    end
+
+    -- Write shared capacity
+    if entry.sharedCapacity then
+        xmlFile:setValue(modKey .. ".sharedCapacity#value", entry.sharedCapacity)
+    end
+
+    -- Mark mod as used in this savegame
+    table.insert(usedModNames, RmAdjustStorageCapacity.modName)
+
+    Log:debug("SAVE_XML: Wrote capacity to embedded data for %s (%d fillTypes, husbandryFood=%s, sharedCapacity=%s)",
+        placeableName, ftIndex, tostring(entry.husbandryFood ~= nil), tostring(entry.sharedCapacity ~= nil))
 end

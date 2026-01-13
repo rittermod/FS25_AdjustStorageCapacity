@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="100">
     <author>Ritter</author>
-    <version>0.3.2.0</version>
+    <version>0.3.3.0</version>
     <title>
         <en>Adjust Storage Capacity</en>
     </title>
@@ -37,6 +37,9 @@ Not Supported:
 Console commands available.
 
 Changelog:
+0.3.3.0 (Alpha):
+- Fixed fill levels being lost when loading savegames with expanded capacity
+
 0.3.2.0 (Alpha):
 - Added capacity protection: clamps to fill level to prevent data loss
 - Fixed K keybind getting stuck when entering/exiting vehicles

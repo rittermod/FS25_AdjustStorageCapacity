@@ -141,6 +141,10 @@ The mod supports multiplayer with a permission system:
 
 ## Changelog
 
+### 0.3.3.0 (Alpha)
+
+- Fixed fill levels being lost when loading savegames with expanded storage capacity
+
 ### 0.3.2.0 (Alpha)
 
 - Added capacity protection: capacity now clamps to current fill level to prevent data loss

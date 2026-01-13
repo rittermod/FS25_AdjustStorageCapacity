@@ -70,6 +70,34 @@ function RmVehicleStorageCapacity.prerequisitesPresent(specializations)
     return SpecializationUtil.hasSpecialization(FillUnit, specializations)
 end
 
+--- Initialize specialization - called by SpecializationManager:initSpecializations()
+--- This is the correct place to register savegame schema paths for mod specializations.
+function RmVehicleStorageCapacity.initSpecialization()
+    local schemaSavegame = Vehicle.xmlSchemaSavegame
+    if schemaSavegame == nil then
+        Log:error("Vehicle.xmlSchemaSavegame is nil in initSpecialization - cannot register savegame paths")
+        return
+    end
+
+    -- Register savegame paths for our custom capacity data
+    -- Format: vehicles.vehicle(?).MODNAME.specShortName.fillUnits.fillUnit(?)
+    local basePath = "vehicles.vehicle(?)." .. RmVehicleStorageCapacity.SPEC_NAME
+
+    schemaSavegame:register(XMLValueType.INT, basePath .. ".fillUnits.fillUnit(?)#index", "Fill unit index")
+    schemaSavegame:register(XMLValueType.INT, basePath .. ".fillUnits.fillUnit(?)#capacity", "Custom capacity for fill unit")
+
+    Log:info("Vehicle savegame schema paths registered at: %s", basePath)
+end
+
+--- Register XML paths for this specialization (vehicle definition schema)
+--- NOTE: This is for the vehicle DEFINITION XML, not savegame.
+--- Savegame schema registration is done in initSpecialization().
+---@param _schema table The vehicle XML schema
+function RmVehicleStorageCapacity.registerXMLPaths(_schema)
+    -- Vehicle definition paths would go here if we needed any
+    -- Savegame paths are registered in initSpecialization()
+end
+
 --- Register event listeners for this specialization
 function RmVehicleStorageCapacity.registerEventListeners(vehicleType)
     SpecializationUtil.registerEventListener(vehicleType, "onLoad", RmVehicleStorageCapacity)
@@ -77,48 +105,132 @@ function RmVehicleStorageCapacity.registerEventListeners(vehicleType)
     SpecializationUtil.registerEventListener(vehicleType, "onDelete", RmVehicleStorageCapacity)
     SpecializationUtil.registerEventListener(vehicleType, "onReadStream", RmVehicleStorageCapacity)
     SpecializationUtil.registerEventListener(vehicleType, "onWriteStream", RmVehicleStorageCapacity)
+    -- NOTE: Vehicles don't have loadFromXMLFile event - savegame data comes via onLoad(savegame)
+    -- saveToXMLFile IS called for vehicles (registered as direct function on spec)
 end
 
 --- Called when vehicle is loaded
+--- For vehicles, savegame data comes via the savegame parameter (NOT loadFromXMLFile event)
+--- CRITICAL TIMING: Our onLoad runs AFTER FillUnit:onLoad (specs fire in registration order).
+--- FillUnit:onLoad creates the fillUnits array. So fillUnits EXIST when our onLoad runs!
+--- We must apply capacity HERE, before FillUnit:onPostLoad loads fill levels (which caps to capacity).
 function RmVehicleStorageCapacity:onLoad(savegame)
     local specTableName = RmVehicleStorageCapacity.SPEC_TABLE_NAME
     local spec = self[specTableName]
+    local vehicleName = self:getName() or "Unknown"
 
-    Log:debug("onLoad: %s", self:getName())
+    Log:debug("onLoad: %s", vehicleName)
 
     if spec == nil then
         -- FS25 should have created this - create fallback if missing
         self[specTableName] = {}
         spec = self[specTableName]
-        Log:debug("onLoad: %s - created fallback spec table", self:getName())
+        Log:debug("onLoad: %s - created fallback spec table", vehicleName)
     end
 
     -- Storage for original capacities {[fillUnitIndex] = originalCapacity}
     spec.originalCapacities = {}
+
+    -- Capture original capacities NOW (FillUnit:onLoad has already run, fillUnits exist)
+    local fillUnitSpec = self.spec_fillUnit
+    if fillUnitSpec ~= nil and fillUnitSpec.fillUnits ~= nil then
+        for i, fillUnit in ipairs(fillUnitSpec.fillUnits) do
+            spec.originalCapacities[i] = fillUnit.capacity
+        end
+        Log:debug("onLoad: %s - captured %d original capacities", vehicleName, #fillUnitSpec.fillUnits)
+    end
+
+    -- Load and apply custom capacity from savegame (server only)
+    -- This MUST happen in onLoad, BEFORE FillUnit:onPostLoad loads fill levels
+    if g_server ~= nil and savegame ~= nil then
+        local uniqueId = self.uniqueId
+        Log:debug("LOAD_SAVEGAME_START: %s (uniqueId=%s, savegame.key=%s)",
+            vehicleName, tostring(uniqueId), savegame.key)
+
+        if uniqueId ~= nil then
+            -- Check for embedded data in savegame
+            -- The key format matches what saveToXMLFile writes: "vehicles.vehicle(N).MODNAME.specName"
+            local modKey = savegame.key .. "." .. RmVehicleStorageCapacity.SPEC_NAME
+            local xmlFile = savegame.xmlFile
+
+            Log:debug("LOAD_SAVEGAME: Checking for embedded data at key: %s", modKey)
+
+            if not xmlFile:hasProperty(modKey) then
+                Log:debug("LOAD_SAVEGAME_NONE: No custom capacity data for %s", vehicleName)
+                return
+            end
+
+            local entry = {}
+
+            -- Read fill unit capacities
+            xmlFile:iterate(modKey .. ".fillUnits.fillUnit", function(_, fuKey)
+                local index = xmlFile:getValue(fuKey .. "#index")
+                local capacity = xmlFile:getValue(fuKey .. "#capacity")
+                if index and capacity then
+                    entry[index] = capacity
+                    Log:debug("LOAD_SAVEGAME: Read fillUnit %d = %d", index, capacity)
+                end
+            end)
+
+            if not next(entry) then
+                Log:debug("LOAD_SAVEGAME_NONE: No fillUnit data for %s", vehicleName)
+                return
+            end
+
+            -- Apply capacity NOW
+            -- FillUnit:onLoad has already created fillUnits, so we can modify them
+            -- This happens BEFORE FillUnit:onPostLoad which loads fill levels
+            RmAdjustStorageCapacity.vehicleCapacities[uniqueId] = entry
+            spec.loadedFromSavegame = true
+
+            if fillUnitSpec ~= nil and fillUnitSpec.fillUnits ~= nil then
+                for fillUnitIndex, capacity in pairs(entry) do
+                    local fillUnit = fillUnitSpec.fillUnits[fillUnitIndex]
+                    if fillUnit then
+                        local oldCapacity = fillUnit.capacity
+                        fillUnit.capacity = capacity
+                        Log:info("LOAD_SAVEGAME: %s fillUnit[%d] %d -> %d (BEFORE fill levels load)",
+                            vehicleName, fillUnitIndex, oldCapacity, capacity)
+                    else
+                        Log:warning("LOAD_SAVEGAME: %s fillUnit[%d] not found", vehicleName, fillUnitIndex)
+                    end
+                end
+            else
+                Log:warning("LOAD_SAVEGAME: %s has no fillUnits to apply capacity to", vehicleName)
+            end
+        end
+    end
 end
 
---- Called after vehicle loads - capture original capacities
-function RmVehicleStorageCapacity:onPostLoad(savegame)
-    local spec = self[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
+--- Called after vehicle loads - verify capacities are applied
+--- NOTE: FillUnit:onPostLoad loads fill levels BEFORE this runs (specs fire in registration order)
+--- We already applied capacity in onLoad, so fill levels should NOT be capped.
+function RmVehicleStorageCapacity:onPostLoad(_savegame)
     local fillUnitSpec = self.spec_fillUnit
+    local vehicleName = self:getName() or "Unknown"
 
     if fillUnitSpec == nil or fillUnitSpec.fillUnits == nil then
-        Log:debug("onPostLoad: %s has no fill units", self:getName())
+        Log:debug("onPostLoad: %s has no fill units", vehicleName)
         return
     end
 
-    -- Capture original capacities for each fill unit
-    for i, fillUnit in ipairs(fillUnitSpec.fillUnits) do
-        spec.originalCapacities[i] = fillUnit.capacity
-    end
-
-    -- Apply any stored custom capacities (from savegame load on server)
+    -- Log current state for debugging
     if g_server ~= nil then
-        RmAdjustStorageCapacity:applyVehicleCapacities(self)
+        local uniqueId = self.uniqueId
+        local entry = RmAdjustStorageCapacity.vehicleCapacities[uniqueId]
+
+        if entry then
+            for fillUnitIndex, expectedCapacity in pairs(entry) do
+                local fillUnit = fillUnitSpec.fillUnits[fillUnitIndex]
+                if fillUnit then
+                    Log:debug("onPostLoad: %s fillUnit[%d] capacity=%d fillLevel=%d (expected capacity=%d)",
+                        vehicleName, fillUnitIndex, fillUnit.capacity, fillUnit.fillLevel, expectedCapacity)
+                end
+            end
+        end
     end
 
-    Log:debug("onPostLoad: %s - %d fill units, capacities captured",
-        self:getName(), #fillUnitSpec.fillUnits)
+    Log:debug("onPostLoad: %s - %d fill units verified", vehicleName, #fillUnitSpec.fillUnits)
 end
 
 --- Called when vehicle is deleted/sold - clean up custom capacities
@@ -285,4 +397,45 @@ function RmVehicleStorageCapacity:getAllFillUnitInfo()
     end
 
     return result
+end
+
+-- ============================================================================
+-- Savegame XML Save Hook
+-- NOTE: For vehicles, loading happens in onLoad(savegame), NOT via loadFromXMLFile event
+-- saveToXMLFile IS called for vehicles - it's invoked from Vehicle:saveToXMLFile
+-- ============================================================================
+
+--- Save custom capacity to vehicle's embedded savegame section
+--- Called from Vehicle:saveToXMLFile which passes key = "vehicles.vehicle(N).MODNAME.specName"
+---@param xmlFile table XMLFile object (new API with methods)
+---@param key string The full key including specialization path
+---@param usedModNames table Array to add mod name if we write data
+function RmVehicleStorageCapacity:saveToXMLFile(xmlFile, key, usedModNames)
+    local uniqueId = self.uniqueId
+    if uniqueId == nil then
+        return
+    end
+
+    local entry = RmAdjustStorageCapacity.vehicleCapacities[uniqueId]
+    if entry == nil or next(entry) == nil then
+        return  -- No custom capacity for this vehicle
+    end
+
+    local vehicleName = self:getName() or "Unknown"
+
+    -- Write fill unit capacities directly under the specialization key
+    -- key is already "vehicles.vehicle(N).MODNAME.rmVehicleStorageCapacity"
+    local fuIndex = 0
+    for fillUnitIndex, capacity in pairs(entry) do
+        local fuKey = string.format("%s.fillUnits.fillUnit(%d)", key, fuIndex)
+        xmlFile:setValue(fuKey .. "#index", fillUnitIndex)
+        xmlFile:setValue(fuKey .. "#capacity", capacity)
+        fuIndex = fuIndex + 1
+    end
+
+    -- Mark mod as used in this savegame
+    table.insert(usedModNames, RmAdjustStorageCapacity.modName)
+
+    Log:info("SAVE_XML: Wrote vehicle capacity to embedded data for %s (%d fillUnits, key=%s)",
+        vehicleName, fuIndex, key)
 end

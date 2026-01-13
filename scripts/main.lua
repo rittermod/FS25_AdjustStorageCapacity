@@ -87,6 +87,8 @@ local function init()
 
     -- Register the vehicle specialization using g_specializationManager (available at init time)
     -- This is the correct FS25 pattern per BulkFill mod
+    -- NOTE: Savegame schema registration is done in RmVehicleStorageCapacity.initSpecialization()
+    -- which is automatically called by SpecializationManager:initSpecializations()
     g_specializationManager:addSpecialization(
         "rmVehicleStorageCapacity",
         "RmVehicleStorageCapacity",
