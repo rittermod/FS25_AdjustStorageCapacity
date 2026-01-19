@@ -131,6 +131,9 @@ function RmVehicleStorageCapacity:onLoad(savegame)
     -- Storage for original capacities {[fillUnitIndex] = originalCapacity}
     spec.originalCapacities = {}
 
+    -- Storage for original discharge speeds {[nodeIndex] = {emptySpeedLitersPerSec, fillUnitIndex}}
+    spec.originalDischargeSpeeds = {}
+
     -- Capture original capacities NOW (FillUnit:onLoad has already run, fillUnits exist)
     local fillUnitSpec = self.spec_fillUnit
     if fillUnitSpec ~= nil and fillUnitSpec.fillUnits ~= nil then
@@ -138,6 +141,25 @@ function RmVehicleStorageCapacity:onLoad(savegame)
             spec.originalCapacities[i] = fillUnit.capacity
         end
         Log:debug("onLoad: %s - captured %d original capacities", vehicleName, #fillUnitSpec.fillUnits)
+    end
+
+    -- Capture original discharge speeds (Dischargeable specialization)
+    local dischargeSpec = self.spec_dischargeable
+    if dischargeSpec ~= nil and dischargeSpec.dischargeNodes ~= nil then
+        for i, node in ipairs(dischargeSpec.dischargeNodes) do
+            if node.emptySpeed ~= nil then
+                -- Convert from l/ms to l/sec for storage
+                spec.originalDischargeSpeeds[i] = {
+                    emptySpeedLitersPerSec = node.emptySpeed * 1000,
+                    fillUnitIndex = node.fillUnitIndex
+                }
+                Log:trace("onLoad: %s - captured discharge speed %.0f l/sec for node %d (fillUnit %d)",
+                    vehicleName, node.emptySpeed * 1000, i, node.fillUnitIndex)
+            end
+        end
+        if #dischargeSpec.dischargeNodes > 0 then
+            Log:debug("onLoad: %s - captured %d original discharge speeds", vehicleName, #dischargeSpec.dischargeNodes)
+        end
     end
 
     -- Load and apply custom capacity from savegame (server only)
@@ -191,6 +213,9 @@ function RmVehicleStorageCapacity:onLoad(savegame)
                         fillUnit.capacity = capacity
                         Log:info("LOAD_SAVEGAME: %s fillUnit[%d] %d -> %d (BEFORE fill levels load)",
                             vehicleName, fillUnitIndex, oldCapacity, capacity)
+
+                        -- Apply proportional discharge speed
+                        RmVehicleStorageCapacity.applyProportionalDischargeSpeed(self, fillUnitIndex, capacity)
                     else
                         Log:warning("LOAD_SAVEGAME: %s fillUnit[%d] not found", vehicleName, fillUnitIndex)
                     end
@@ -397,6 +422,83 @@ function RmVehicleStorageCapacity:getAllFillUnitInfo()
     end
 
     return result
+end
+
+-- ============================================================================
+-- Proportional Discharge Speed
+-- ============================================================================
+
+--- Apply proportional discharge speed based on capacity multiplier
+--- Called after capacity is changed to scale the discharge speed proportionally
+---@param fillUnitIndex number The fill unit index that was modified
+---@param newCapacity number The new capacity that was set
+function RmVehicleStorageCapacity:applyProportionalDischargeSpeed(fillUnitIndex, newCapacity)
+    -- Check if auto-scale is enabled
+    if not RmAdjustStorageCapacity.autoScaleSpeed then
+        return
+    end
+
+    local spec = self[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
+    if spec == nil then
+        return
+    end
+
+    local dischargeSpec = self.spec_dischargeable
+    if dischargeSpec == nil or dischargeSpec.dischargeNodes == nil then
+        return
+    end
+
+    local vehicleName = self:getName() or "Unknown"
+
+    -- Find discharge nodes that use this fill unit
+    for nodeIndex, nodeData in pairs(spec.originalDischargeSpeeds) do
+        if nodeData.fillUnitIndex == fillUnitIndex then
+            local originalCapacity = spec.originalCapacities[fillUnitIndex]
+            if originalCapacity ~= nil and originalCapacity > 0 then
+                local multiplier = newCapacity / originalCapacity
+                local originalSpeed = nodeData.emptySpeedLitersPerSec
+                local newSpeed = originalSpeed * multiplier
+
+                -- Apply to discharge node
+                local dischargeNode = dischargeSpec.dischargeNodes[nodeIndex]
+                if dischargeNode ~= nil then
+                    local oldSpeedMS = dischargeNode.emptySpeed
+                    dischargeNode.emptySpeed = newSpeed / 1000  -- Convert l/sec to l/ms
+                    Log:debug("Applied discharge speed %.0f -> %.0f l/sec (%.1fx) to %s node %d",
+                        oldSpeedMS * 1000, newSpeed, multiplier, vehicleName, nodeIndex)
+                end
+            end
+        end
+    end
+end
+
+--- Reset discharge speed to original for a specific fill unit
+---@param fillUnitIndex number|nil The fill unit index (nil = reset all)
+function RmVehicleStorageCapacity:resetDischargeSpeed(fillUnitIndex)
+    local spec = self[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
+    if spec == nil or spec.originalDischargeSpeeds == nil then
+        return
+    end
+
+    local dischargeSpec = self.spec_dischargeable
+    if dischargeSpec == nil or dischargeSpec.dischargeNodes == nil then
+        return
+    end
+
+    local vehicleName = self:getName() or "Unknown"
+
+    -- Reset discharge nodes
+    for nodeIndex, nodeData in pairs(spec.originalDischargeSpeeds) do
+        -- Reset if fillUnitIndex matches or if resetting all (nil)
+        if fillUnitIndex == nil or nodeData.fillUnitIndex == fillUnitIndex then
+            local dischargeNode = dischargeSpec.dischargeNodes[nodeIndex]
+            if dischargeNode ~= nil then
+                dischargeNode.emptySpeed = nodeData.emptySpeedLitersPerSec / 1000
+                Log:debug("Reset discharge speed to %.0f l/sec for %s node %d",
+                    nodeData.emptySpeedLitersPerSec, vehicleName, nodeIndex)
+            end
+        end
+    end
 end
 
 -- ============================================================================

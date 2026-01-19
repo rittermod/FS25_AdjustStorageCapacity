@@ -39,6 +39,7 @@ Console commands available.
 Changelog:
 0.3.4.0 (Alpha):
 - Fixed K keybind for placeables getting stuck when entering vehicles
+- Scaled load/discharge speed proportionally to capacity change from original capacity
 
 0.3.3.0 (Alpha):
 - Fixed fill levels being lost when loading savegames with expanded capacity
