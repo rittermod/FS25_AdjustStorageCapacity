@@ -24,8 +24,11 @@ RmAdjustStorageCapacity.STORAGE_TYPE = {
 RmAdjustStorageCapacity.customCapacities = {}
 
 -- Storage for original placeable capacities (for reset functionality)
--- Key = uniqueId, Value = {fillTypes = {[fillTypeIndex] = capacity}, husbandryFood = capacity}
+-- Key = uniqueId, Value = {fillTypes = {[fillTypeIndex] = capacity}, husbandryFood = capacity, loadSpeedLitersPerSec = speed}
 RmAdjustStorageCapacity.originalCapacities = {}
+
+-- Auto-scale speed when capacity changes (enabled by default)
+RmAdjustStorageCapacity.autoScaleSpeed = true
 
 -- Storage for custom vehicle capacities
 -- Key = uniqueId, Value = {[fillUnitIndex] = capacity}
@@ -106,6 +109,41 @@ function RmAdjustStorageCapacity:getStorageInfo(placeable)
 
     result.hasStorage = #result.storages > 0 or result.husbandryFood ~= nil
     return result
+end
+
+--- Get the loading station for a placeable (if present)
+--- Loading stations control the speed at which items are loaded FROM storage
+---@param placeable table The placeable to inspect
+---@return table|nil loadingStation The LoadingStation object or nil
+function RmAdjustStorageCapacity:getLoadingStation(placeable)
+    if placeable == nil then
+        return nil
+    end
+
+    -- PlaceableSilo
+    if placeable.spec_silo ~= nil and placeable.spec_silo.loadingStation ~= nil then
+        return placeable.spec_silo.loadingStation
+    end
+
+    -- PlaceableHusbandry
+    if placeable.spec_husbandry ~= nil and placeable.spec_husbandry.loadingStation ~= nil then
+        return placeable.spec_husbandry.loadingStation
+    end
+
+    -- PlaceableProductionPoint
+    if placeable.spec_productionPoint ~= nil and placeable.spec_productionPoint.productionPoint ~= nil then
+        local pp = placeable.spec_productionPoint.productionPoint
+        if pp.loadingStation ~= nil then
+            return pp.loadingStation
+        end
+    end
+
+    -- PlaceableBuyingStation
+    if placeable.spec_buyingStation ~= nil and placeable.spec_buyingStation.buyingStation ~= nil then
+        return placeable.spec_buyingStation.buyingStation
+    end
+
+    return nil
 end
 
 --- Get all fill types supported by a placeable's storages
@@ -250,8 +288,9 @@ function RmAdjustStorageCapacity.onMissionStarted()
     -- Initialize vehicle detection handler (player-attached trigger for vehicles)
     RmVehicleDetectionHandler.init()
 
-    -- Capture original capacities for all storages (before any modifications)
-    -- Note: Custom capacities are loaded/applied in onLoad() hooks (before this runs)
+    -- Capture original capacities for any storages not yet captured
+    -- Note: Most placeables have originals captured in onLoad() (before custom capacities apply)
+    -- This catches any edge cases or placeables without our specialization
     RmAdjustStorageCapacity:captureAllOriginalCapacities()
 
     -- Log current state
@@ -355,7 +394,8 @@ function RmAdjustStorageCapacity:captureOriginalCapacities(placeable)
     local originals = {
         fillTypes = {},
         husbandryFood = nil,
-        sharedCapacity = nil
+        sharedCapacity = nil,
+        loadSpeedLitersPerSec = nil -- Original loading speed (l/sec)
     }
 
     -- Capture from Storage class instances
@@ -383,8 +423,159 @@ function RmAdjustStorageCapacity:captureOriginalCapacities(placeable)
         originals.husbandryFood = storageInfo.husbandryFood.capacity
     end
 
+    -- Capture original load speed from LoadingStation (if present)
+    local loadingStation = self:getLoadingStation(placeable)
+    if loadingStation ~= nil and loadingStation.loadTriggers ~= nil then
+        for _, loadTrigger in ipairs(loadingStation.loadTriggers) do
+            if loadTrigger.fillLitersPerMS ~= nil then
+                -- Convert from l/ms to l/sec for easier human understanding
+                originals.loadSpeedLitersPerSec = loadTrigger.fillLitersPerMS * 1000
+                Log:trace("Captured original load speed: %.0f l/sec for %s",
+                    originals.loadSpeedLitersPerSec, placeable:getName())
+                break -- Usually only one trigger per station
+            end
+        end
+    end
+
     self.originalCapacities[uniqueId] = originals
     return true
+end
+
+--- Calculate the maximum capacity multiplier for a placeable
+--- When multiple fill types have different multipliers, use the largest one for load speed
+---@param placeable table The placeable
+---@param customCapacity table The custom capacity settings
+---@return number multiplier The maximum multiplier (1.0 if no change)
+function RmAdjustStorageCapacity:getMaxCapacityMultiplier(placeable, customCapacity)
+    local uniqueId = placeable.uniqueId
+    if uniqueId == nil then
+        Log:debug("getMaxCapacityMultiplier: no uniqueId, returning 1.0")
+        return 1.0
+    end
+
+    local originals = self.originalCapacities[uniqueId]
+    if originals == nil then
+        Log:debug("getMaxCapacityMultiplier: no originals for %s, returning 1.0", placeable:getName())
+        return 1.0
+    end
+
+    local maxMultiplier = 1.0
+
+    -- Check shared capacity multiplier
+    if customCapacity.sharedCapacity ~= nil and originals.sharedCapacity ~= nil and originals.sharedCapacity > 0 then
+        local mult = customCapacity.sharedCapacity / originals.sharedCapacity
+        Log:debug("getMaxCapacityMultiplier: shared capacity %d / %d = %.2f",
+            customCapacity.sharedCapacity, originals.sharedCapacity, mult)
+        if mult > maxMultiplier then
+            maxMultiplier = mult
+        end
+    elseif customCapacity.sharedCapacity ~= nil then
+        Log:debug("getMaxCapacityMultiplier: customCapacity.sharedCapacity=%d but originals.sharedCapacity=%s",
+            customCapacity.sharedCapacity, tostring(originals.sharedCapacity))
+    end
+
+    -- Check per-filltype capacity multipliers
+    if customCapacity.fillTypes ~= nil and originals.fillTypes ~= nil then
+        for fillTypeIndex, newCapacity in pairs(customCapacity.fillTypes) do
+            local originalCapacity = originals.fillTypes[fillTypeIndex]
+            if originalCapacity ~= nil and originalCapacity > 0 then
+                local mult = newCapacity / originalCapacity
+                if mult > maxMultiplier then
+                    maxMultiplier = mult
+                end
+            end
+        end
+    end
+
+    -- Check husbandry food capacity multiplier
+    if customCapacity.husbandryFood ~= nil and originals.husbandryFood ~= nil and originals.husbandryFood > 0 then
+        local mult = customCapacity.husbandryFood / originals.husbandryFood
+        if mult > maxMultiplier then
+            maxMultiplier = mult
+        end
+    end
+
+    return maxMultiplier
+end
+
+--- Apply proportional load speed to a placeable based on capacity multiplier
+---@param placeable table The placeable
+---@param multiplier number The capacity multiplier (e.g., 10 for 10x capacity)
+function RmAdjustStorageCapacity:applyProportionalLoadSpeed(placeable, multiplier)
+    Log:debug("applyProportionalLoadSpeed: %s, multiplier=%.2f, autoScaleSpeed=%s",
+        placeable:getName(), multiplier, tostring(self.autoScaleSpeed))
+
+    if not self.autoScaleSpeed then
+        Log:debug("applyProportionalLoadSpeed: autoScaleSpeed is disabled")
+        return
+    end
+
+    if multiplier <= 0 or multiplier == 1.0 then
+        Log:debug("applyProportionalLoadSpeed: multiplier is %.2f, no change needed", multiplier)
+        return -- No change needed
+    end
+
+    local uniqueId = placeable.uniqueId
+    if uniqueId == nil then
+        Log:debug("applyProportionalLoadSpeed: no uniqueId")
+        return
+    end
+
+    local originals = self.originalCapacities[uniqueId]
+    if originals == nil or originals.loadSpeedLitersPerSec == nil then
+        Log:debug("applyProportionalLoadSpeed: no original speed (originals=%s, loadSpeed=%s)",
+            originals and "exists" or "nil",
+            originals and tostring(originals.loadSpeedLitersPerSec) or "N/A")
+        return -- No original speed recorded
+    end
+
+    local loadingStation = self:getLoadingStation(placeable)
+    if loadingStation == nil or loadingStation.loadTriggers == nil then
+        Log:debug("applyProportionalLoadSpeed: no loadingStation or loadTriggers (station=%s)",
+            loadingStation and "exists" or "nil")
+        return
+    end
+
+    local originalSpeed = originals.loadSpeedLitersPerSec
+    local newSpeed = originalSpeed * multiplier
+
+    -- Apply to all load triggers
+    for _, loadTrigger in ipairs(loadingStation.loadTriggers) do
+        if loadTrigger.fillLitersPerMS ~= nil then
+            local oldSpeedMS = loadTrigger.fillLitersPerMS
+            loadTrigger.fillLitersPerMS = newSpeed / 1000 -- Convert l/sec to l/ms
+            Log:debug("Applied load speed %.0f -> %.0f l/sec (%.1fx) to %s",
+                oldSpeedMS * 1000, newSpeed, multiplier, placeable:getName())
+        end
+    end
+end
+
+--- Reset load speed to original for a placeable
+---@param placeable table The placeable
+function RmAdjustStorageCapacity:resetLoadSpeed(placeable)
+    local uniqueId = placeable.uniqueId
+    if uniqueId == nil then
+        return
+    end
+
+    local originals = self.originalCapacities[uniqueId]
+    if originals == nil or originals.loadSpeedLitersPerSec == nil then
+        return
+    end
+
+    local loadingStation = self:getLoadingStation(placeable)
+    if loadingStation == nil or loadingStation.loadTriggers == nil then
+        return
+    end
+
+    -- Reset all load triggers to original speed
+    for _, loadTrigger in ipairs(loadingStation.loadTriggers) do
+        if loadTrigger.fillLitersPerMS ~= nil then
+            loadTrigger.fillLitersPerMS = originals.loadSpeedLitersPerSec / 1000
+            Log:debug("Reset load speed to %.0f l/sec for %s",
+                originals.loadSpeedLitersPerSec, placeable:getName())
+        end
+    end
 end
 
 --- Apply all custom capacities to storage placeables
@@ -512,6 +703,18 @@ function RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCap
 
     if applied > 0 then
         Log:debug("Applied %d capacity changes to %s", applied, placeable:getName())
+
+        -- Apply proportional load speed based on capacity multiplier
+        local multiplier = self:getMaxCapacityMultiplier(placeable, customCapacity)
+        Log:debug("Capacity multiplier for %s: %.2f (sharedCapacity=%s, fillTypes=%s)",
+            placeable:getName(), multiplier,
+            tostring(customCapacity.sharedCapacity),
+            customCapacity.fillTypes and "yes" or "no")
+        if multiplier ~= 1.0 then
+            self:applyProportionalLoadSpeed(placeable, multiplier)
+        else
+            Log:debug("Skipping load speed adjustment for %s (multiplier is 1.0)", placeable:getName())
+        end
     end
 
     return applied > 0
@@ -818,6 +1021,9 @@ function RmAdjustStorageCapacity:resetCapacity(placeable, fillTypeIndex)
             end
         end
 
+        -- Reset load speed to original
+        self:resetLoadSpeed(placeable)
+
         self.customCapacities[uniqueId] = nil
         Log:info("Reset all capacities for %s to original", placeable:getName())
     end
@@ -912,11 +1118,14 @@ function RmAdjustStorageCapacity:resetVehicleCapacity(vehicle, fillUnitIndex)
             end
         end
 
-        -- Apply original capacity
+        -- Apply original capacity (this will also reset discharge speed via proportional calculation)
         local originalCapacity = spec.originalCapacities[fillUnitIndex]
         if originalCapacity ~= nil then
             self:applyVehicleCapacity(vehicle, fillUnitIndex, originalCapacity)
         end
+
+        -- Explicitly reset discharge speed for this fill unit
+        RmVehicleStorageCapacity.resetDischargeSpeed(vehicle, fillUnitIndex)
 
         Log:info("Reset vehicle %s fillUnit[%d] capacity to original", vehicle:getName(), fillUnitIndex)
     else
@@ -927,6 +1136,9 @@ function RmAdjustStorageCapacity:resetVehicleCapacity(vehicle, fillUnitIndex)
         for fuIndex, originalCapacity in pairs(spec.originalCapacities) do
             self:applyVehicleCapacity(vehicle, fuIndex, originalCapacity)
         end
+
+        -- Explicitly reset all discharge speeds
+        RmVehicleStorageCapacity.resetDischargeSpeed(vehicle, nil)
 
         Log:info("Reset all capacities for vehicle %s to original", vehicle:getName())
     end
@@ -989,6 +1201,13 @@ function RmAdjustStorageCapacity:applyVehicleCapacity(vehicle, fillUnitIndex, ca
 
     Log:debug("Applied capacity %d -> %d to vehicle %s fillUnit[%d]",
         oldCapacity, capacity, vehicle:getName(), fillUnitIndex)
+
+    -- Apply proportional discharge speed
+    local spec = vehicle[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
+    if spec ~= nil and spec.applyProportionalDischargeSpeed ~= nil then
+        -- Call via method on the vehicle/spec
+        RmVehicleStorageCapacity.applyProportionalDischargeSpeed(vehicle, fillUnitIndex, capacity)
+    end
 end
 
 --- Check if current player can modify a vehicle's capacity

@@ -93,6 +93,10 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
     Log:debug("onLoad: %s (uniqueId=%s, ownerFarmId=%s)",
         placeableName, tostring(self.uniqueId), tostring(ownerFarmId))
 
+    -- CRITICAL: Capture original capacities BEFORE applying custom capacities
+    -- This ensures we have the true original values for speed scaling calculations
+    RmAdjustStorageCapacity:captureOriginalCapacities(self)
+
     -- Load and apply custom capacity from savegame (server only)
     -- This MUST happen in onLoad, BEFORE PlaceableSilo:loadFromXMLFile loads fill levels
     if g_server ~= nil and savegame ~= nil then
@@ -178,9 +182,8 @@ function RmPlaceableStorageCapacity:onPostLoad(savegame)
         return
     end
 
-    -- Capture original capacity before any ReadStream modifications
-    -- This must happen here (not in onMissionStarted) because ReadStream runs before mission start
-    RmAdjustStorageCapacity:captureOriginalCapacities(self)
+    -- Note: Original capacities are now captured in onLoad() BEFORE custom capacities are applied
+    -- This ensures the true original values are captured for speed scaling calculations
 
     local ownerFarmId = self:getOwnerFarmId()
     Log:debug("onPostLoad complete: %s (uniqueId=%s, ownerFarmId=%s, storage types: %s)",
