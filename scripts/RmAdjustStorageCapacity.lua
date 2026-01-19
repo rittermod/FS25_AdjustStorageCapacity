@@ -31,16 +31,8 @@ RmAdjustStorageCapacity.originalCapacities = {}
 -- Key = uniqueId, Value = {[fillUnitIndex] = capacity}
 RmAdjustStorageCapacity.vehicleCapacities = {}
 
--- ============================================================================
--- Placeable Keybind Management
--- ============================================================================
--- Manages K keybind registration for placeable info triggers.
--- Note: Vehicle keybinds use the activatableObjectsSystem instead.
-
-RmAdjustStorageCapacity.keybind = {
-    actionEventId = nil, -- Current action event ID
-    currentTarget = nil  -- {type="placeable", object=table}
-}
+-- Note: Placeable keybinds now use the activatableObjectsSystem via RmPlaceableCapacityActivatable.
+-- Vehicle keybinds also use the activatableObjectsSystem via RmVehicleCapacityActivatable.
 
 -- Console error messages (hardcoded English - console is developer-facing)
 local CONSOLE_ERRORS = {
@@ -1148,135 +1140,6 @@ function RmAdjustStorageCapacity:showCapacityDialog(placeable)
 end
 
 -- ============================================================================
--- Placeable Keybind Management Functions
--- ============================================================================
-
---- Register the K keybind for a placeable
---- Only one registration can be active at a time.
---- Note: Vehicle keybinds use the activatableObjectsSystem instead.
----@param targetType string "placeable" (kept for API compatibility)
----@param targetObject table The placeable object
----@param textKey string The localization key for the keybind text
----@return boolean success Whether the registration was successful
-function RmAdjustStorageCapacity:registerKeybind(targetType, targetObject, textKey)
-    local kb = self.keybind
-
-    -- If we already have a target, unregister it first
-    if kb.currentTarget ~= nil then
-        Log:debug("Keybind replacement: unregistering current target")
-        self:unregisterKeybindInternal()
-    end
-
-    -- Register the action event
-    local _, actionEventId = g_inputBinding:registerActionEvent(
-        InputAction.RM_ADJUST_STORAGE_CAPACITY,
-        self,
-        RmAdjustStorageCapacity.onKeybindPressed,
-        false, -- triggerUp
-        true,  -- triggerDown
-        false, -- triggerAlways
-        true   -- isActive
-    )
-
-    if actionEventId == nil then
-        Log:warning("Failed to register K keybind for placeable")
-        return false
-    end
-
-    g_inputBinding:setActionEventText(actionEventId, g_i18n:getText(textKey))
-    g_inputBinding:setActionEventTextPriority(actionEventId, GS_PRIO_HIGH)
-    g_inputBinding:setActionEventTextVisibility(actionEventId, true)
-
-    kb.actionEventId = actionEventId
-    kb.currentTarget = {
-        type = targetType,
-        object = targetObject
-    }
-
-    local name = targetObject.getName and targetObject:getName() or "unknown"
-    Log:debug("Registered K keybind for placeable: %s", name)
-    return true
-end
-
---- Unregister the K keybind for a specific placeable
---- Only unregisters if the target matches the current registration
----@param targetType string "placeable" (kept for API compatibility)
----@param targetObject table The placeable object
-function RmAdjustStorageCapacity:unregisterKeybind(targetType, targetObject)
-    local kb = self.keybind
-
-    -- Only unregister if this target is the current one
-    if kb.currentTarget == nil then
-        return
-    end
-
-    if kb.currentTarget.object ~= targetObject then
-        Log:debug("Keybind unregister skipped: different target")
-        return
-    end
-
-    local name = targetObject.getName and targetObject:getName() or "unknown"
-    self:unregisterKeybindInternal()
-    Log:debug("Unregistered K keybind for placeable: %s", name)
-end
-
---- Internal function to unregister the keybind (no target check)
-function RmAdjustStorageCapacity:unregisterKeybindInternal()
-    local kb = self.keybind
-
-    if kb.actionEventId ~= nil then
-        g_inputBinding:removeActionEvent(kb.actionEventId)
-        kb.actionEventId = nil
-    end
-
-    kb.currentTarget = nil
-end
-
---- Handle K key press - opens placeable capacity dialog
---- Note: Vehicle keybinds are handled by RmVehicleCapacityActivatable instead.
----@param actionName string The action name
----@param inputValue number The input value
-function RmAdjustStorageCapacity:onKeybindPressed(actionName, inputValue)
-    local kb = self.keybind
-
-    if kb.currentTarget == nil then
-        Log:warning("K pressed but no current target")
-        return
-    end
-
-    local targetObject = kb.currentTarget.object
-
-    if targetObject == nil then
-        Log:warning("K pressed but target object is nil")
-        return
-    end
-
-    local name = targetObject.getName and targetObject:getName() or "unknown"
-    Log:debug("K pressed for placeable: %s", name)
-
-    -- Check permission
-    local canModify, errorKey = self:canModifyCapacity(targetObject)
-    if not canModify then
-        g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
-            g_i18n:getText(errorKey))
-        return
-    end
-
-    -- Show placeable dialog
-    RmStorageCapacityDialog.show(targetObject)
-end
-
---- Check if a specific placeable currently has the keybind registered
----@param targetType string "placeable" (kept for API compatibility)
----@param targetObject table The placeable object
----@return boolean hasKeybind Whether this target has the keybind
-function RmAdjustStorageCapacity:hasKeybind(targetType, targetObject)
-    local kb = self.keybind
-    return kb.currentTarget ~= nil
-        and kb.currentTarget.object == targetObject
-end
-
--- ============================================================================
 -- Console Commands
 -- ============================================================================
 
@@ -1685,8 +1548,8 @@ end
 function RmAdjustStorageCapacity:deleteMap()
     Log:debug("Mod unloading")
 
-    -- Clear keybind registration
-    self:unregisterKeybindInternal()
+    -- Note: Keybind cleanup is now handled by activatableObjectsSystem
+    -- via RmPlaceableCapacityActivatable and RmVehicleCapacityActivatable
 
     -- Remove placeable console commands
     removeConsoleCommand("ascList")

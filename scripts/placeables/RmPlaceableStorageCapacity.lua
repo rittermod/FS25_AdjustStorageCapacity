@@ -86,6 +86,7 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
 
     spec.storageTypes = {} -- Which storage types this placeable has
     spec.loadedFromSavegame = false
+    spec.activatable = nil -- Will hold RmPlaceableCapacityActivatable when player is in trigger
 
     local placeableName = self:getName() or "Unknown"
     local ownerFarmId = self:getOwnerFarmId()
@@ -215,7 +216,7 @@ function RmPlaceableStorageCapacity:detectStorageTypes()
 end
 
 --- Called when player enters the info trigger area
---- Register K keybind via central manager
+--- Creates activatable and adds to activatableObjectsSystem
 ---@param otherId number The player/entity node that entered
 function RmPlaceableStorageCapacity:onInfoTriggerEnter(otherId)
     local spec = self[RmPlaceableStorageCapacity.SPEC_TABLE_NAME]
@@ -228,18 +229,29 @@ function RmPlaceableStorageCapacity:onInfoTriggerEnter(otherId)
         return
     end
 
-    -- Check permission before showing keybind
+    -- Check permission before creating activatable
     local canModify, _ = RmAdjustStorageCapacity:canModifyCapacity(self)
     if not canModify then
-        return  -- Don't show K for unauthorized players
+        return  -- Don't create activatable for unauthorized players
     end
 
-    -- Register via central keybind manager (placeable has higher priority)
-    RmAdjustStorageCapacity:registerKeybind("placeable", self, "rm_asc_action_adjustCapacity")
+    -- Avoid duplicate activatables
+    if spec.activatable ~= nil then
+        Log:debug("onInfoTriggerEnter: Activatable already exists for %s, skipping", self:getName())
+        return
+    end
+
+    -- Create activatable and add to system
+    spec.activatable = RmPlaceableCapacityActivatable.new(self)
+
+    if g_currentMission ~= nil and g_currentMission.activatableObjectsSystem ~= nil then
+        g_currentMission.activatableObjectsSystem:addActivatable(spec.activatable)
+        Log:debug("onInfoTriggerEnter: Added activatable for %s", self:getName())
+    end
 end
 
 --- Called when player leaves the info trigger area
---- Unregister K keybind via central manager
+--- Removes activatable from activatableObjectsSystem
 ---@param otherId number The player/entity node that left
 function RmPlaceableStorageCapacity:onInfoTriggerLeave(otherId)
     local spec = self[RmPlaceableStorageCapacity.SPEC_TABLE_NAME]
@@ -247,14 +259,27 @@ function RmPlaceableStorageCapacity:onInfoTriggerLeave(otherId)
         return
     end
 
-    -- Unregister via central keybind manager
-    RmAdjustStorageCapacity:unregisterKeybind("placeable", self)
+    -- Remove activatable if present
+    if spec.activatable ~= nil then
+        if g_currentMission ~= nil and g_currentMission.activatableObjectsSystem ~= nil then
+            g_currentMission.activatableObjectsSystem:removeActivatable(spec.activatable)
+            Log:debug("onInfoTriggerLeave: Removed activatable for %s", self:getName())
+        end
+        spec.activatable = nil
+    end
 end
 
 --- Called when placeable is deleted/sold - clean up data
 function RmPlaceableStorageCapacity:onDelete()
-    -- Clean up keybind via central manager
-    RmAdjustStorageCapacity:unregisterKeybind("placeable", self)
+    local spec = self[RmPlaceableStorageCapacity.SPEC_TABLE_NAME]
+
+    -- Clean up activatable if present
+    if spec ~= nil and spec.activatable ~= nil then
+        if g_currentMission ~= nil and g_currentMission.activatableObjectsSystem ~= nil then
+            g_currentMission.activatableObjectsSystem:removeActivatable(spec.activatable)
+        end
+        spec.activatable = nil
+    end
 
     local uniqueId = self.uniqueId
 

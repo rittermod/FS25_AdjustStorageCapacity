@@ -18,6 +18,7 @@ source(modDirectory .. "scripts/gui/RmVehicleCapacityDialog.lua")
 source(modDirectory .. "scripts/RmMenuIntegration.lua")
 source(modDirectory .. "scripts/vehicles/RmVehicleCapacityActivatable.lua")
 source(modDirectory .. "scripts/vehicles/RmVehicleDetectionHandler.lua")
+source(modDirectory .. "scripts/placeables/RmPlaceableCapacityActivatable.lua")
 
 -- Get logger for this module
 local Log = RmLogging.getLogger("AdjustStorageCapacity")

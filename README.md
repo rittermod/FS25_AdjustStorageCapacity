@@ -141,6 +141,10 @@ The mod supports multiplayer with a permission system:
 
 ## Changelog
 
+### 0.3.4.0 (Alpha)
+
+- Fixed K keybind for placeables getting stuck when entering vehicles
+
 ### 0.3.3.0 (Alpha)
 
 - Fixed fill levels being lost when loading savegames with expanded storage capacity
