@@ -63,16 +63,22 @@ function RmPlaceableCapacityActivatable:getIsActivatable()
 end
 
 --- Get distance from player position to this placeable
---- For placeables, we return a small constant since we use trigger-based detection.
---- The activatableObjectsSystem uses this for priority sorting.
----@param x number Player X position (unused)
----@param y number Player Y position (unused)
----@param z number Player Z position (unused)
+--- Uses actual distance for fair priority with other activatables (like animal triggers)
+---@param x number Player X position
+---@param y number Player Y position
+---@param z number Player Z position
 ---@return number distance
 function RmPlaceableCapacityActivatable:getDistance(x, y, z)
-    -- Return small distance since player is known to be in trigger zone
-    -- This gives placeables high priority when player is in their trigger
-    return 1.0
+    if self.placeable == nil or self.placeable.rootNode == nil then
+        return math.huge
+    end
+
+    if not entityExists(self.placeable.rootNode) then
+        return math.huge
+    end
+
+    local px, py, pz = getWorldTranslation(self.placeable.rootNode)
+    return MathUtil.vector3Length(x - px, y - py, z - pz)
 end
 
 --- Register custom input (K key) - called by activatableObjectsSystem

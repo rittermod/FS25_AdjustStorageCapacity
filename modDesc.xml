@@ -37,6 +37,10 @@ Not Supported:
 Console commands available.
 
 Changelog:
+
+0.3.5.0 (Alpha):
+- Fixed the fix for K keybind. It stole priority from animal trigger etc
+
 0.3.4.0 (Alpha):
 - Fixed K keybind for placeables getting stuck when entering vehicles
 - Scaled load/discharge speed proportionally to capacity change from original capacity

@@ -141,6 +141,9 @@ The mod supports multiplayer with a permission system:
 
 ## Changelog
 
+### 0.3.5.0 (Alpha):
+- Fixed the fix for K keybind. It stole priority from animal trigger etc
+
 ### 0.3.4.0 (Alpha)
 
 - Fixed K keybind for placeables getting stuck when entering vehicles
