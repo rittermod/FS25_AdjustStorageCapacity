@@ -6,8 +6,8 @@ This mod gives you control over storage capacities for silos, production facilit
 
 Supports multiplayer with a permission system - server admins can modify any storage or vehicle, while farm managers can adjust their own farm's facilities and vehicles.
 
-> [!WARNING]
-> This is an alpha release (early release). Both singleplayer and multiplayer functionality are tested, but there are probably some bugs not found. Please report any issues on [GitHub](https://github.com/rittermod/FS25_AdjustStorageCapacity/issues) or [Discord](https://discord.gg/KXFevNjknB).
+> [!NOTE]
+> This is a beta release. Both singleplayer and multiplayer functionality are tested and stable. Please report any issues on [GitHub](https://github.com/rittermod/FS25_AdjustStorageCapacity/issues) or [Discord](https://discord.gg/KXFevNjknB).
 
 > **Note:** Only bulk storage is supported. No pallets, big bags, or terrain heap-based storage like bunker silos.
 
@@ -141,7 +141,13 @@ The mod supports multiplayer with a permission system:
 
 ## Changelog
 
-### 0.3.5.0 (Alpha):
+### 0.4.0.0 (Beta)
+
+- Visual fill levels now update when changing capacity
+- Includes vehicle heaps, silo fill planes, and animal food troughs
+
+### 0.3.5.0 (Alpha)
+
 - Fixed the fix for K keybind. It stole priority from animal trigger etc
 
 ### 0.3.4.0 (Alpha)

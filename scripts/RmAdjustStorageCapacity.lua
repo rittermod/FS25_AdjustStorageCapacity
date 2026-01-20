@@ -49,7 +49,7 @@ local CONSOLE_ERRORS = {
 
 -- Get logger for this module (prefix auto-generated with context suffix)
 local Log = RmLogging.getLogger("AdjustStorageCapacity")
--- Log:setLevel(RmLogging.LOG_LEVEL.DEBUG) -- TODO: Change to INFO for release
+-- Log:setLevel(RmLogging.LOG_LEVEL.TRACE) -- TODO: Change to INFO for release
 
 -- ============================================================================
 -- Storage Enumeration and Type Detection
@@ -550,6 +550,220 @@ function RmAdjustStorageCapacity:applyProportionalLoadSpeed(placeable, multiplie
     end
 end
 
+--- Update visual fill planes after capacity change
+--- Call this after modifying storage capacities to update the visual representation
+---@param placeable table The placeable
+function RmAdjustStorageCapacity:updatePlaceableFillPlanes(placeable)
+    if placeable == nil then return end
+
+    local storageInfo = self:getStorageInfo(placeable)
+
+    -- Update storage fill planes (silos, productions, husbandries)
+    for _, info in ipairs(storageInfo.storages) do
+        local storage = info.storage
+        if storage ~= nil then
+            -- Update 2D fill planes (simple percentage bars)
+            if storage.updateFillPlanes ~= nil then
+                storage:updateFillPlanes()
+                Log:trace("Updated 2D fill planes for storage type %s", info.type)
+            end
+
+            -- Update 3D dynamic fill plane (heap) if present
+            if storage.dynamicFillPlane ~= nil and storage.dynamicFillPlaneBaseNode ~= nil then
+                self:recreateStorageDynamicFillPlane(storage)
+            end
+        end
+    end
+
+    -- Update husbandry food fill planes
+    if storageInfo.husbandryFood ~= nil and placeable.updateFillPlanes ~= nil then
+        placeable:updateFillPlanes()
+        Log:trace("Updated husbandry food fill planes")
+
+        -- Update 3D dynamic food plane if present
+        local spec = storageInfo.husbandryFood
+        if spec.dynamicFoodPlane ~= nil and spec.baseNode ~= nil then
+            self:recreateHusbandryFoodDynamicPlane(placeable, spec)
+        end
+    end
+end
+
+--- Recreate a Storage's dynamicFillPlane with updated capacity
+---@param storage table The storage object
+function RmAdjustStorageCapacity:recreateStorageDynamicFillPlane(storage)
+    if storage.dynamicFillPlane == nil or storage.dynamicFillPlaneBaseNode == nil then
+        return
+    end
+
+    -- Get current fill state
+    local totalFillLevel = 0
+    local primaryFillType = FillType.UNKNOWN
+    for fillType, fillLevel in pairs(storage.fillLevels or {}) do
+        if fillLevel > 0 then
+            totalFillLevel = totalFillLevel + fillLevel
+            if primaryFillType == FillType.UNKNOWN then
+                primaryFillType = fillType
+            end
+        end
+    end
+
+    -- Get new capacity (use first available capacity or shared capacity)
+    local newCapacity = storage.capacity
+    if storage.capacities ~= nil and next(storage.capacities) ~= nil then
+        for _, cap in pairs(storage.capacities) do
+            newCapacity = cap
+            break
+        end
+    end
+
+    -- Store old fill plane reference
+    local oldFillPlane = storage.dynamicFillPlane
+    local baseNode = storage.dynamicFillPlaneBaseNode
+
+    -- Delete old fill plane
+    if oldFillPlane ~= nil then
+        delete(oldFillPlane)
+    end
+
+    -- Create new fill plane with updated capacity
+    -- Note: We use createFillPlaneShape directly since Storage doesn't store XML parameters
+    local newFillPlane = createFillPlaneShape(
+        baseNode,
+        "fillPlane",
+        newCapacity,
+        1.0,          -- maxDelta: max heap height above surface
+        math.rad(35), -- maxSurfaceAngle: heap slope angle
+        math.rad(35), -- maxPhysicalSurfaceAngle: physical slope angle
+        0.05,         -- maxSurfaceDistanceError: precision 
+        0.9,          -- maxSubDivEdgeLength: mesh subdivision
+        1.35,         -- syncMaxSubDivEdgeLength: multiplayer sync subdivision
+        false,        -- allSidePlanes
+        false         -- retessellateTop
+    )
+
+    if newFillPlane ~= nil and newFillPlane ~= 0 then
+        -- Apply material using game utility (same as Storage.lua does)
+        if FillPlaneUtil ~= nil and FillPlaneUtil.assignDefaultMaterialsFromTerrain ~= nil then
+            FillPlaneUtil.assignDefaultMaterialsFromTerrain(newFillPlane, g_terrainNode)
+        end
+
+        -- Set fill type using game utility (same as Storage.lua does)
+        if primaryFillType ~= FillType.UNKNOWN then
+            if FillPlaneUtil ~= nil and FillPlaneUtil.setFillType ~= nil then
+                FillPlaneUtil.setFillType(newFillPlane, primaryFillType)
+            end
+        end
+
+        -- Restore fill level visually
+        if totalFillLevel > 0 then
+            local x, y, z = localToWorld(newFillPlane, 0, 0, 0)
+            local d1x, d1y, d1z = localDirectionToWorld(newFillPlane, 1, 0, 0)
+            local d2x, d2y, d2z = localDirectionToWorld(newFillPlane, 0, 0, 1)
+
+            local steps = math.max(1, math.floor(totalFillLevel / 400))
+            steps = math.min(steps, 50)
+            for _ = 1, steps do
+                fillPlaneAdd(newFillPlane, totalFillLevel / steps, x, y, z, d1x, d1y, d1z, d2x, d2y, d2z)
+            end
+        end
+
+        setVisibility(newFillPlane, totalFillLevel > 0)
+
+        storage.dynamicFillPlane = newFillPlane
+        Log:debug("Recreated storage dynamicFillPlane with capacity %d, restored %.0f fill", newCapacity, totalFillLevel)
+    else
+        Log:warning("Failed to recreate storage dynamicFillPlane - createFillPlaneShape returned nil")
+        storage.dynamicFillPlane = nil
+    end
+end
+
+--- Recreate a HusbandryFood's dynamicFoodPlane with updated capacity
+---@param placeable table The placeable
+---@param spec table The husbandryFood spec
+function RmAdjustStorageCapacity:recreateHusbandryFoodDynamicPlane(placeable, spec)
+    if spec.dynamicFoodPlane == nil or spec.baseNode == nil then
+        return
+    end
+
+    -- Get current fill state
+    local totalFillLevel = 0
+    if placeable.getTotalFood ~= nil then
+        totalFillLevel = placeable:getTotalFood()
+    end
+    local newCapacity = spec.capacity or 10000
+
+    -- Get primary fill type for texture
+    local primaryFillType = FillType.UNKNOWN
+    if spec.fillLevels ~= nil then
+        for fillType, fillLevel in pairs(spec.fillLevels) do
+            if fillLevel > 0 then
+                primaryFillType = fillType
+                break
+            end
+        end
+    end
+
+    -- Store old fill plane reference
+    local oldFillPlane = spec.dynamicFoodPlane
+    local baseNode = spec.baseNode
+
+    -- Delete old fill plane
+    if oldFillPlane ~= nil then
+        delete(oldFillPlane)
+    end
+
+    -- Create new fill plane with updated capacity
+    local newFillPlane = createFillPlaneShape(
+        baseNode,
+        "fillPlane",
+        newCapacity,
+        1.0,          -- maxDelta: max heap height above surface
+        math.rad(35), -- maxSurfaceAngle: heap slope angle
+        math.rad(35), -- maxPhysicalSurfaceAngle: physical slope angle
+        0.05,         -- maxSurfaceDistanceError: precision
+        0.9,          -- maxSubDivEdgeLength: mesh subdivision
+        1.35,         -- syncMaxSubDivEdgeLength: multiplayer sync subdivision
+        false,        -- allSidePlanes
+        false         -- retessellateTop
+    )
+
+    if newFillPlane ~= nil and newFillPlane ~= 0 then
+        -- Apply material using game utility (same as PlaceableHusbandryFood.lua does)
+        if FillPlaneUtil ~= nil and FillPlaneUtil.assignDefaultMaterialsFromTerrain ~= nil then
+            FillPlaneUtil.assignDefaultMaterialsFromTerrain(newFillPlane, g_terrainNode)
+        end
+
+        -- Set fill type using game utility (same as PlaceableHusbandryFood.lua does)
+        if primaryFillType ~= FillType.UNKNOWN then
+            if FillPlaneUtil ~= nil and FillPlaneUtil.setFillType ~= nil then
+                FillPlaneUtil.setFillType(newFillPlane, primaryFillType)
+            end
+        end
+
+        -- Restore fill level visually
+        if totalFillLevel > 0 then
+            local x, y, z = localToWorld(newFillPlane, 0, 0, 0)
+            local d1x, d1y, d1z = localDirectionToWorld(newFillPlane, 1, 0, 0)
+            local d2x, d2y, d2z = localDirectionToWorld(newFillPlane, 0, 0, 1)
+
+            local steps = math.max(1, math.floor(totalFillLevel / 400))
+            steps = math.min(steps, 50)
+            for _ = 1, steps do
+                fillPlaneAdd(newFillPlane, totalFillLevel / steps, x, y, z, d1x, d1y, d1z, d2x, d2y, d2z)
+            end
+        end
+
+        setVisibility(newFillPlane, totalFillLevel > 0)
+
+        spec.dynamicFoodPlane = newFillPlane
+        Log:debug("Recreated husbandryFood dynamicFoodPlane with capacity %d, restored %.0f fill", newCapacity,
+            totalFillLevel)
+    else
+        Log:warning("Failed to recreate husbandryFood dynamicFoodPlane - createFillPlaneShape returned nil")
+        spec.dynamicFoodPlane = nil
+    end
+end
+
 --- Reset load speed to original for a placeable
 ---@param placeable table The placeable
 function RmAdjustStorageCapacity:resetLoadSpeed(placeable)
@@ -715,6 +929,9 @@ function RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCap
         else
             Log:debug("Skipping load speed adjustment for %s (multiplier is 1.0)", placeable:getName())
         end
+
+        -- Update visual fill planes to reflect new capacity
+        self:updatePlaceableFillPlanes(placeable)
     end
 
     return applied > 0
@@ -883,6 +1100,8 @@ function RmAdjustStorageCapacity:setCapacity(placeable, fillTypeIndex, newCapaci
         local storageInfo = self:getStorageInfo(placeable)
         if storageInfo.husbandryFood ~= nil then
             self:applyHusbandryFoodCapacity(storageInfo.husbandryFood, newCapacity)
+            -- Update visual fill planes
+            self:updatePlaceableFillPlanes(placeable)
         end
 
         Log:info("Set HusbandryFood capacity for %s to %d", placeable:getName(), newCapacity)
@@ -959,6 +1178,8 @@ function RmAdjustStorageCapacity:resetCapacity(placeable, fillTypeIndex)
             local storageInfo = self:getStorageInfo(placeable)
             if storageInfo.husbandryFood ~= nil then
                 self:applyHusbandryFoodCapacity(storageInfo.husbandryFood, originals.husbandryFood)
+                -- Update visual fill planes
+                self:updatePlaceableFillPlanes(placeable)
             end
         end
 
@@ -1018,6 +1239,8 @@ function RmAdjustStorageCapacity:resetCapacity(placeable, fillTypeIndex)
             local storageInfo = self:getStorageInfo(placeable)
             if storageInfo.husbandryFood ~= nil then
                 self:applyHusbandryFoodCapacity(storageInfo.husbandryFood, originals.husbandryFood)
+                -- Update visual fill planes
+                self:updatePlaceableFillPlanes(placeable)
             end
         end
 
@@ -1146,6 +1369,133 @@ function RmAdjustStorageCapacity:resetVehicleCapacity(vehicle, fillUnitIndex)
     return true, nil
 end
 
+--- Update FillVolume visual after fillUnit.capacity change
+--- Recreates the 3D fill plane shape to reflect the new capacity
+---@param vehicle table The vehicle
+---@param fillUnitIndex number The fill unit index
+---@param newCapacity number The new capacity value
+function RmAdjustStorageCapacity:updateVehicleFillVolumeCapacity(vehicle, fillUnitIndex, newCapacity)
+    if vehicle == nil then return end
+
+    local fillVolumeSpec = vehicle.spec_fillVolume
+    if fillVolumeSpec == nil or fillVolumeSpec.volumes == nil then return end
+
+    -- Get current fill state from FillUnit
+    local fillLevel = vehicle:getFillUnitFillLevel(fillUnitIndex) or 0
+    local fillType = vehicle:getFillUnitFillType(fillUnitIndex) or FillType.UNKNOWN
+
+    -- Update all fill volumes linked to this fill unit
+    for i, fillVolume in ipairs(fillVolumeSpec.volumes) do
+        if fillVolume.fillUnitIndex == fillUnitIndex then
+            local factor = fillVolume.fillUnitFactor or 1
+            local oldCapacity = fillVolume.capacity
+            local newVolumeCapacity = newCapacity * factor
+
+            -- Update the Lua capacity value
+            fillVolume.capacity = newVolumeCapacity
+
+            -- Recreate the 3D fill plane shape if it exists
+            if fillVolume.volume ~= nil and fillVolume.baseNode ~= nil then
+                -- Delete old fill plane shape
+                delete(fillVolume.volume)
+
+                -- Create new fill plane shape with updated capacity
+                fillVolume.volume = createFillPlaneShape(
+                    fillVolume.baseNode,
+                    "fillPlane",
+                    newVolumeCapacity,
+                    fillVolume.maxDelta,
+                    fillVolume.maxSurfaceAngle,
+                    fillVolume.maxPhysicalSurfaceAngle,
+                    fillVolume.maxSurfaceDistanceError,
+                    fillVolume.maxSubDivEdgeLength,
+                    fillVolume.syncMaxSubDivEdgeLength,
+                    fillVolume.allSidePlanes,
+                    fillVolume.retessellateTop
+                )
+
+                if fillVolume.volume ~= nil and fillVolume.volume ~= 0 then
+                    -- Link to parent node
+                    link(fillVolume.baseNode, fillVolume.volume)
+
+                    -- Apply material
+                    local fillVolumeMaterial = g_materialManager:getBaseMaterialByName("fillPlane")
+                    if fillVolumeMaterial ~= nil then
+                        setMaterial(fillVolume.volume, fillVolumeMaterial, 0)
+                        g_fillTypeManager:assignFillTypeTextureArraysFromTerrain(fillVolume.volume, g_terrainNode, true,
+                            true, true)
+                    end
+
+                    -- Recalculate height offset
+                    fillPlaneAdd(fillVolume.volume, 1, 0, 1, 0, 11, 0, 0, 0, 0, 11)
+                    fillVolume.heightOffset = getFillPlaneHeightAtLocalPos(fillVolume.volume, 0, 0)
+                    fillPlaneAdd(fillVolume.volume, -1, 0, 1, 0, 11, 0, 0, 0, 0, 11)
+
+                    -- Rebuild deformer polylines
+                    for j = #fillVolume.deformers, 1, -1 do
+                        local deformer = fillVolume.deformers[j]
+                        deformer.polyline = findPolyline(fillVolume.volume, deformer.posX, deformer.posZ)
+                        if deformer.polyline == nil or deformer.polyline == -1 then
+                            Log:trace("Could not find polyline for deformer %d", j)
+                        end
+                    end
+
+                    -- Set fill type texture if known
+                    if fillType ~= FillType.UNKNOWN then
+                        local textureArrayIndex = g_fillTypeManager:getTextureArrayIndexByFillTypeIndex(fillType)
+                        if textureArrayIndex ~= nil then
+                            setShaderParameter(fillVolume.volume, "fillTypeId", textureArrayIndex - 1, 0, 0, 0, false)
+                        end
+
+                        -- Set physical surface angle from fill type
+                        local fillTypeInfo = g_fillTypeManager:getFillTypeByIndex(fillType)
+                        if fillTypeInfo ~= nil and fillTypeInfo.maxPhysicalSurfaceAngle ~= nil then
+                            setFillPlaneMaxPhysicalSurfaceAngle(fillVolume.volume, fillTypeInfo.maxPhysicalSurfaceAngle)
+                        end
+                    end
+
+                    -- Restore fill level visually using fillPlaneAdd
+                    local volumeFillLevel = math.min(fillLevel, newVolumeCapacity)
+                    if volumeFillLevel > 0 then
+                        -- Add fill in steps to build up the heap properly
+                        local loadSize = 0.1
+                        if fillVolume.maxPhysicalSurfaceAngle == 0 or fillVolume.maxSurfaceAngle == 0 then
+                            loadSize = 10
+                        end
+                        local x, y, z = localToWorld(fillVolume.volume, -loadSize * 0.5, 0, -loadSize * 0.5)
+                        local d1x, d1y, d1z = localDirectionToWorld(fillVolume.volume, loadSize, 0, 0)
+                        local d2x, d2y, d2z = localDirectionToWorld(fillVolume.volume, 0, 0, loadSize)
+
+                        local steps = math.max(1, math.floor(volumeFillLevel / 400))
+                        steps = math.min(steps, 50) -- Cap iterations
+                        for _ = 1, steps do
+                            fillPlaneAdd(fillVolume.volume, volumeFillLevel / steps, x, y, z, d1x, d1y, d1z, d2x, d2y,
+                                d2z)
+                        end
+                    end
+
+                    -- Update internal fill level tracking
+                    fillVolume.fillLevel = volumeFillLevel
+                    fillVolume.lastFillType = fillType
+
+                    -- Restore visibility
+                    setVisibility(fillVolume.volume, volumeFillLevel > 0)
+
+                    Log:debug("Recreated fillVolume[%d] with capacity %d -> %d, restored %.0f fill",
+                        i, oldCapacity or 0, newVolumeCapacity, volumeFillLevel)
+                else
+                    Log:warning("Failed to recreate fillVolume[%d] - createFillPlaneShape returned nil", i)
+                    fillVolume.volume = nil
+                end
+            else
+                -- No 3D volume, just update capacity value
+                Log:trace("Updated fillVolume[%d] capacity %d -> %d (no 3D shape)",
+                    i, oldCapacity or 0, newVolumeCapacity)
+            end
+        end
+    end
+end
+
 --- Apply custom capacities to a vehicle from stored settings
 ---@param vehicle table The vehicle
 function RmAdjustStorageCapacity:applyVehicleCapacities(vehicle)
@@ -1208,6 +1558,9 @@ function RmAdjustStorageCapacity:applyVehicleCapacity(vehicle, fillUnitIndex, ca
         -- Call via method on the vehicle/spec
         RmVehicleStorageCapacity.applyProportionalDischargeSpeed(vehicle, fillUnitIndex, capacity)
     end
+
+    -- Update FillVolume cached capacity for visual representation
+    self:updateVehicleFillVolumeCapacity(vehicle, fillUnitIndex, capacity)
 end
 
 --- Check if current player can modify a vehicle's capacity
