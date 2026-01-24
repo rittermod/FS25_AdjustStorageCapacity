@@ -141,6 +141,10 @@ The mod supports multiplayer with a permission system:
 
 ## Changelog
 
+### 0.4.1.0 (Beta)
+
+- Fixed production point menu (R) not showing when K keybind is active
+
 ### 0.4.0.0 (Beta)
 
 - Visual fill levels now update when changing capacity

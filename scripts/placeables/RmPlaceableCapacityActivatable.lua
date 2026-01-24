@@ -38,6 +38,9 @@ function RmPlaceableCapacityActivatable.new(placeable)
     return self
 end
 
+-- Distance threshold for yielding to production point's native trigger
+local PP_YIELD_DISTANCE = 1.5  -- meters
+
 --- Check if this activatable can be activated
 --- Called by activatableObjectsSystem to determine visibility
 ---@return boolean
@@ -59,26 +62,59 @@ function RmPlaceableCapacityActivatable:getIsActivatable()
 
     -- Check if player has permission to modify
     local canModify, _ = RmAdjustStorageCapacity:canModifyCapacity(self.placeable)
-    return canModify
+    if not canModify then
+        return false
+    end
+
+    -- PRODUCTION POINT DYNAMIC YIELD: When player is close to PP's interaction trigger,
+    -- yield priority by returning false. This lets PP's native activatable take over.
+    -- When player moves away from PP's trigger, we become active again.
+    local ppSpec = self.placeable.spec_productionPoint
+    if ppSpec ~= nil and ppSpec.productionPoint ~= nil then
+        local pp = ppSpec.productionPoint
+        local ppTriggerNode = pp.interactionTriggerNode
+
+        if ppTriggerNode ~= nil and entityExists(ppTriggerNode) and g_localPlayer ~= nil then
+            -- Get player position
+            local px, py, pz = getWorldTranslation(g_localPlayer.rootNode)
+            -- Get PP trigger position
+            local tx, ty, tz = getWorldTranslation(ppTriggerNode)
+            -- Calculate distance
+            local distanceToPPTrigger = MathUtil.vector3Length(px - tx, py - ty, pz - tz)
+
+            if distanceToPPTrigger < PP_YIELD_DISTANCE then
+                return false
+            end
+        end
+    end
+
+    return true
 end
 
---- Get distance from player position to this placeable
---- Uses actual distance for fair priority with other activatables (like animal triggers)
+--- Get distance from player position to this placeable's info trigger
+--- Uses the info trigger node (not rootNode) for fair priority with other activatables.
+--- Base game activatables calculate distance from their trigger nodes, so we must do
+--- the same to avoid stealing priority from other activatables in the same area.
 ---@param x number Player X position
 ---@param y number Player Y position
 ---@param z number Player Z position
 ---@return number distance
 function RmPlaceableCapacityActivatable:getDistance(x, y, z)
-    if self.placeable == nil or self.placeable.rootNode == nil then
+    if self.placeable == nil then
         return math.huge
     end
 
-    if not entityExists(self.placeable.rootNode) then
+    -- Use info trigger node for fair priority with other trigger-based activatables
+    -- Falls back to rootNode if info trigger not available
+    local infoSpec = self.placeable.spec_infoTrigger
+    local triggerNode = infoSpec and infoSpec.infoTriggerNode or self.placeable.rootNode
+
+    if triggerNode == nil or not entityExists(triggerNode) then
         return math.huge
     end
 
-    local px, py, pz = getWorldTranslation(self.placeable.rootNode)
-    return MathUtil.vector3Length(x - px, y - py, z - pz)
+    local tx, ty, tz = getWorldTranslation(triggerNode)
+    return MathUtil.vector3Length(x - tx, y - ty, z - tz)
 end
 
 --- Register custom input (K key) - called by activatableObjectsSystem
