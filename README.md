@@ -14,11 +14,12 @@ Supports multiplayer with a permission system - server admins can modify any sto
 ## Features
 
 - **Easy capacity dialog:** Press K near any storage or vehicle to open the settings
-- **In-game menu integration:** Press K in the Production or Animals menu to adjust the selected facility
+- **In-game menu integration:** Press K in Production, Animals, Workshop, or Construction menus
 - **Vehicle support:** Walk near any vehicle with fill units to adjust capacities
 - **Per-filltype editing:** Adjust capacity for each fill type or fill unit individually
 - **Inline text input:** Double-click or press Enter on a row to edit
 - **Capacity protection:** Automatically clamps to current fill level to prevent data loss
+- **Optional trigger shortcuts:** Setting to hide K at placeables/vehicles (menu access always available)
 - **Configurable key binding:** Change the default K key in game settings
 - **Multiplayer support:** Permission system for server admins and farm managers
 - **Console commands:** Available for advanced users
@@ -79,11 +80,11 @@ Supports multiplayer with a permission system - server admins can modify any sto
 2. Press `K` to open the vehicle capacity dialog
 3. Edit fill unit capacities the same way as placeables
 
-### From In-Game Menu
-1. Open the Production or Animals menu (ESC → Production / Animals)
-2. Select a production facility or husbandry
-3. Press `K` to open the capacity dialog for the selected facility
-4. Edit capacities as described above
+### From In-Game Menus
+- **Production menu:** Select a production point, press `K`
+- **Animals menu:** Select a husbandry, press `K`
+- **Workshop/Repair screen:** Select a vehicle, press `K`
+- **Construction mode:** View placeable info, press `K`
 
 ## Console Commands
 
@@ -140,6 +141,12 @@ The mod supports multiplayer with a permission system:
 - **Platform**: PC (Windows/macOS)
 
 ## Changelog
+
+### 0.5.0.0 (Beta)
+
+- Added K button to Workshop/Repair screen for vehicle capacity adjustment
+- Added K button to Construction mode placeable info dialog
+- Added setting to hide trigger shortcuts (K at placeables/vehicles) - menu access always available
 
 ### 0.4.1.0 (Beta)
 
