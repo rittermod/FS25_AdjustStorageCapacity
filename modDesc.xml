@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="100">
     <author>Ritter</author>
-    <version>0.4.1.0</version>
+    <version>0.5.0.0</version>
     <title>
         <en>Adjust Storage Capacity</en>
     </title>
@@ -15,9 +15,10 @@ Supports multiplayer with permission system - admins can modify any storage, far
 
 Features:
 - Press K near any supported storage or vehicle to open capacity dialog
-- Press K in Production or Animals menu to adjust selected facility
+- Press K in Production, Animals, Workshop, or Construction menus
 - Edit capacity for each fill type or fill unit
 - Capacity protection: clamps to fill level to prevent data loss
+- Optional setting to hide trigger shortcuts (menu access always available)
 - Configurable key binding for opening dialogs
 - Multiplayer support with permissions
 
@@ -37,6 +38,11 @@ Not Supported:
 Console commands available.
 
 Changelog:
+
+0.5.0.0 (Beta):
+- Added K button to Workshop/Repair screen for vehicle capacity adjustment
+- Added K button to Construction mode placeable info dialog
+- Added setting to hide trigger shortcuts (K at placeables/vehicles) - menu access always available
 
 0.4.1.0 (Beta):
 - Fixed production point menu (R) not showing when K keybind is active
