@@ -42,6 +42,11 @@ function RmVehicleCapacityActivatable:getIsActivatable()
         return false
     end
 
+    -- Check if trigger shortcuts are disabled in settings
+    if not RmAscSettings.isShortcutEnabled() then
+        return false
+    end
+
     -- Check if vehicle still exists
     if not entityExists(self.vehicle.rootNode) then
         return false

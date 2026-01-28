@@ -49,6 +49,11 @@ function RmPlaceableCapacityActivatable:getIsActivatable()
         return false
     end
 
+    -- Check if trigger shortcuts are disabled in settings
+    if not RmAscSettings.isShortcutEnabled() then
+        return false
+    end
+
     -- Check if placeable still exists
     if self.placeable.rootNode == nil or not entityExists(self.placeable.rootNode) then
         return false

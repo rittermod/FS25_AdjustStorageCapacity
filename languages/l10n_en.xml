@@ -6,6 +6,7 @@
 
         <!-- Activatable action text -->
         <text name="rm_asc_action_adjustCapacity" text="Adjust Storage Capacity"/>
+        <text name="rm_asc_action_capacity" text="Capacity"/>
 
         <!-- Error messages -->
         <text name="rm_asc_error_notAvailable" text="Action not available"/>
@@ -42,5 +43,10 @@
         <text name="rm_asc_vehicle_noFillUnits" text="No fill units found for this vehicle"/>
         <text name="rm_asc_vehicle_capacitySet" text="Capacity for %s set to %d"/>
         <text name="rm_asc_vehicle_capacitySet_clamped" text="Capacity for %s set to %d (current fill level)"/>
+
+        <!-- Settings -->
+        <text name="rm_asc_settings_section" text="Adjust Storage Capacity"/>
+        <text name="rm_asc_settings_showTriggerShortcut" text="Show shortcut at triggers"/>
+        <text name="rm_asc_settings_showTriggerShortcut_tooltip" text="Show the capacity adjustment shortcut when walking near placeables and vehicles. Menu access (Production, Animals, Workshop, Construction) is always available."/>
     </texts>
 </l10n>
