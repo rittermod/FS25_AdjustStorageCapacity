@@ -142,6 +142,9 @@ The mod supports multiplayer with a permission system:
 
 ## Changelog
 
+### 0.5.1.0 (Beta):
+- K now automatically yields to any active native trigger in another try to prevent occlusion
+
 ### 0.5.0.0 (Beta)
 
 - Added K button to Workshop/Repair screen for vehicle capacity adjustment

@@ -16,6 +16,40 @@ local Log = RmLogging.getLogger("AdjustStorageCapacity")
 -- Guards against the constant not being accessible from mod code at runtime
 local PLAYER_CONTEXT = (PlayerInputComponent and PlayerInputComponent.INPUT_CONTEXT_NAME) or "PLAYER"
 
+-- Distance penalty to yield priority to native triggers at same location
+-- This ensures ASC's K keybind doesn't occlude other activatables
+local DISTANCE_PENALTY = 0.5  -- meters
+
+--- Check if any other (non-ASC) activatable is currently active
+--- If so, yield priority to avoid occluding native triggers.
+---@param selfActivatable table The ASC activatable to check against
+---@return boolean true if we should yield (another activatable is active)
+local function shouldYieldToOtherActivatable(selfActivatable)
+    local system = g_currentMission and g_currentMission.activatableObjectsSystem
+    if system == nil then
+        return false
+    end
+
+    -- Check all other activatables
+    for _, other in pairs(system.objects) do
+        -- Skip ourselves
+        if other ~= selfActivatable then
+            -- Check if it's an ASC activatable (has our unique marker)
+            local isAscActivatable = (other.isRmAscActivatable == true)
+
+            if not isAscActivatable then
+                -- Check if other is currently activatable
+                local otherActive = other.getIsActivatable == nil or other:getIsActivatable(system.dirX, system.dirY, system.dirZ)
+                if otherActive then
+                    return true  -- Yield to any active non-ASC activatable
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 RmVehicleCapacityActivatable = {}
 local RmVehicleCapacityActivatable_mt = Class(RmVehicleCapacityActivatable)
 
@@ -27,6 +61,7 @@ function RmVehicleCapacityActivatable.new(vehicle)
 
     self.vehicle = vehicle
     self.activateText = g_i18n:getText("rm_asc_action_adjustVehicleCapacity")
+    self.isRmAscActivatable = true  -- Unique marker to identify ASC activatables
 
     local vehicleName = vehicle and vehicle:getName() or "unknown"
     Log:debug("[Activatable] Created for vehicle: %s", vehicleName)
@@ -60,7 +95,17 @@ function RmVehicleCapacityActivatable:getIsActivatable()
 
     -- Check if player has permission to modify
     local canModify, _ = RmAdjustStorageCapacity:canModifyVehicleCapacity(self.vehicle)
-    return canModify
+    if not canModify then
+        return false
+    end
+
+    -- DYNAMIC YIELD: If any other (non-ASC) activatable is closer or at equal distance,
+    -- yield priority by returning false. This prevents ASC from occluding native triggers.
+    if shouldYieldToOtherActivatable(self) then
+        return false
+    end
+
+    return true
 end
 
 --- Get distance from player position to this vehicle
@@ -79,7 +124,10 @@ function RmVehicleCapacityActivatable:getDistance(x, y, z)
     end
 
     local vx, vy, vz = getWorldTranslation(self.vehicle.rootNode)
-    return MathUtil.vector3Length(x - vx, y - vy, z - vz)
+    local baseDistance = MathUtil.vector3Length(x - vx, y - vy, z - vz)
+
+    -- Add penalty so ASC yields to native triggers at equal distance
+    return baseDistance + DISTANCE_PENALTY
 end
 
 --- Register custom input (K key) - called by activatableObjectsSystem

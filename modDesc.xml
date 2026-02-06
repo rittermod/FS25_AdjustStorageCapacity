@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="100">
     <author>Ritter</author>
-    <version>0.5.0.0</version>
+    <version>0.5.1.0</version>
     <title>
         <en>Adjust Storage Capacity</en>
     </title>
@@ -38,6 +38,9 @@ Not Supported:
 Console commands available.
 
 Changelog:
+
+0.5.1.0 (Beta):
+- K now automatically yields to any active native trigger in another try to prevent occlusion
 
 0.5.0.0 (Beta):
 - Added K button to Workshop/Repair screen for vehicle capacity adjustment

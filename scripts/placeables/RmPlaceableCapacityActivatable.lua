@@ -31,6 +31,7 @@ function RmPlaceableCapacityActivatable.new(placeable)
     self.placeable = placeable
     self.activateText = g_i18n:getText("rm_asc_action_adjustCapacity")
     self.actionEventId = nil
+    self.isRmAscActivatable = true -- Unique marker to identify ASC activatables
 
     local placeableName = placeable and placeable:getName() or "unknown"
     Log:debug("[PlaceableActivatable] Created for placeable: %s", placeableName)
@@ -38,8 +39,42 @@ function RmPlaceableCapacityActivatable.new(placeable)
     return self
 end
 
--- Distance threshold for yielding to production point's native trigger
-local PP_YIELD_DISTANCE = 1.5  -- meters
+-- Distance penalty to yield priority to native triggers at same location
+-- This ensures ASC's K keybind doesn't occlude other activatables (like PP's R menu)
+-- when player is at equal distance from both triggers
+local DISTANCE_PENALTY = 0.5 -- meters
+
+--- Check if any other (non-ASC) activatable is currently active
+--- If so, yield priority to avoid occluding native triggers like fuel stations, PP menus, etc.
+--- Note: We don't compare distances because many native activatables return math.huge from getDistance()
+--- while still being valid.
+---@return boolean true if we should yield (another activatable is active)
+local function shouldYieldToOtherActivatable(selfActivatable)
+    local system = g_currentMission and g_currentMission.activatableObjectsSystem
+    if system == nil then
+        return false
+    end
+
+    -- Check all other activatables
+    for _, other in pairs(system.objects) do
+        -- Skip ourselves
+        if other ~= selfActivatable then
+            -- Check if it's an ASC activatable (has our unique marker)
+            local isAscActivatable = (other.isRmAscActivatable == true)
+
+            if not isAscActivatable then
+                -- Check if other is currently activatable
+                local otherActive = other.getIsActivatable == nil or
+                other:getIsActivatable(system.dirX, system.dirY, system.dirZ)
+                if otherActive then
+                    return true -- Yield to any active non-ASC activatable
+                end
+            end
+        end
+    end
+
+    return false
+end
 
 --- Check if this activatable can be activated
 --- Called by activatableObjectsSystem to determine visibility
@@ -71,26 +106,11 @@ function RmPlaceableCapacityActivatable:getIsActivatable()
         return false
     end
 
-    -- PRODUCTION POINT DYNAMIC YIELD: When player is close to PP's interaction trigger,
-    -- yield priority by returning false. This lets PP's native activatable take over.
-    -- When player moves away from PP's trigger, we become active again.
-    local ppSpec = self.placeable.spec_productionPoint
-    if ppSpec ~= nil and ppSpec.productionPoint ~= nil then
-        local pp = ppSpec.productionPoint
-        local ppTriggerNode = pp.interactionTriggerNode
-
-        if ppTriggerNode ~= nil and entityExists(ppTriggerNode) and g_localPlayer ~= nil then
-            -- Get player position
-            local px, py, pz = getWorldTranslation(g_localPlayer.rootNode)
-            -- Get PP trigger position
-            local tx, ty, tz = getWorldTranslation(ppTriggerNode)
-            -- Calculate distance
-            local distanceToPPTrigger = MathUtil.vector3Length(px - tx, py - ty, pz - tz)
-
-            if distanceToPPTrigger < PP_YIELD_DISTANCE then
-                return false
-            end
-        end
+    -- DYNAMIC YIELD: If any other (non-ASC) activatable is closer or at equal distance,
+    -- yield priority by returning false. This prevents ASC from occluding native triggers
+    -- like fuel stations, production point menus, animal triggers, etc.
+    if shouldYieldToOtherActivatable(self) then
+        return false
     end
 
     return true
@@ -119,7 +139,10 @@ function RmPlaceableCapacityActivatable:getDistance(x, y, z)
     end
 
     local tx, ty, tz = getWorldTranslation(triggerNode)
-    return MathUtil.vector3Length(x - tx, y - ty, z - tz)
+    local baseDistance = MathUtil.vector3Length(x - tx, y - ty, z - tz)
+
+    -- Add penalty so ASC yields to native triggers at equal distance
+    return baseDistance + DISTANCE_PENALTY
 end
 
 --- Register custom input (K key) - called by activatableObjectsSystem
