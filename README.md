@@ -2,7 +2,9 @@
 
 Need more room in your silos or trailers? Or want to limit storage to make gameplay more challenging? Adjust Storage Capacity lets you customize the capacity of storage facilities and vehicles on your farm.
 
-This mod gives you control over storage capacities for silos, production facilities, animal husbandries, and vehicles. Whether you want massive storage for convenience or reduced capacity for a more realistic challenge, you can set any value you want to bulk storages without editing XML files and mods.
+This mod gives you control over storage capacities for silos, production facilities, animal husbandries, and vehicles. Adjust from anywhere - approach a facility, open in-game menus, or press K while driving to adjust your vehicle and attached implements on the go. Whether you want massive storage for convenience or reduced capacity for a more realistic challenge, you can set any value you want to bulk storages without editing XML files and mods.
+
+Optional auto-scale settings keep expanded vehicles drivable by adjusting mass and load/discharge speed proportionally to capacity changes.
 
 Supports multiplayer with a permission system - server admins can modify any storage or vehicle, while farm managers can adjust their own farm's facilities and vehicles.
 
@@ -14,11 +16,14 @@ Supports multiplayer with a permission system - server admins can modify any sto
 ## Features
 
 - **Easy capacity dialog:** Press K near any storage or vehicle to open the settings
+- **In-vehicle adjustment:** Press K while driving to adjust your vehicle and attached implements
 - **In-game menu integration:** Press K in Production, Animals, Workshop, or Construction menus
-- **Vehicle support:** Walk near any vehicle with fill units to adjust capacities
 - **Per-filltype editing:** Adjust capacity for each fill type or fill unit individually
 - **Inline text input:** Double-click or press Enter on a row to edit
+- **Reset All:** Button to restore original capacities for a storage or vehicle
 - **Capacity protection:** Automatically clamps to current fill level to prevent data loss
+- **Auto-scale vehicle mass:** Keeps expanded vehicles drivable by scaling weight to match original capacity
+- **Auto-scale load/discharge speed:** Optional setting to scale speed proportionally with capacity changes
 - **Optional trigger shortcuts:** Setting to hide K at placeables/vehicles (menu access always available)
 - **Configurable key binding:** Change the default K key in game settings
 - **Multiplayer support:** Permission system for server admins and farm managers
@@ -76,8 +81,8 @@ Supports multiplayer with a permission system - server admins can modify any sto
 6. Press Escape to cancel editing or close the dialog
 
 ### At a Vehicle
-1. Walk near any vehicle with fill units (trailer, harvester, sprayer, tanker)
-2. Press `K` to open the vehicle capacity dialog
+1. Walk near any vehicle with fill units (trailer, harvester, sprayer, tanker) and press `K`
+2. Or press `K` while driving to adjust your current vehicle and attached implements
 3. Edit fill unit capacities the same way as placeables
 
 ### From In-Game Menus
@@ -142,7 +147,16 @@ The mod supports multiplayer with a permission system:
 
 ## Changelog
 
-### 0.5.1.0 (Beta):
+### 0.6.0.0 (Beta)
+
+- Added in-vehicle capacity adjustment: press K while driving to adjust capacity of your vehicle and attached implements
+- Added auto-scale vehicle mass setting: keeps expanded vehicles drivable by scaling weight to original capacity
+- Added "Reset All" button (X) to storage and vehicle capacity dialogs to restore original capacities
+- Fixed multiplayer client not resetting all storage capacities when using reset
+- Added auto-scale speed setting: controls whether load and discharge speed scales proportionally with capacity changes
+
+### 0.5.1.0 (Beta)
+
 - K now automatically yields to any active native trigger in another try to prevent occlusion
 
 ### 0.5.0.0 (Beta)

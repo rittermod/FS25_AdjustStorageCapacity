@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
-<modDesc descVersion="100">
+<modDesc descVersion="106">
     <author>Ritter</author>
-    <version>0.5.1.0</version>
+    <version>0.6.0.0</version>
     <title>
         <en>Adjust Storage Capacity</en>
     </title>
@@ -9,17 +9,22 @@
         <en><![CDATA[
 Need more room in your silos or trailers? Or want to limit storage to make gameplay more challenging?
 
-Adjust Storage Capacity lets you customize storage capacities for silos, production facilities, animal husbandries, and vehicles. Whether you want massive storage for convenience or reduced capacity for a realistic challenge, you can set any value without editing XML files.
+Adjust Storage Capacity lets you customize storage capacities for silos, production facilities, animal husbandries, and vehicles. Adjust from anywhere - approach a facility, open in-game menus, or press K while driving to adjust your vehicle and implements on the go. Set any value without editing XML files.
 
-Supports multiplayer with permission system - admins can modify any storage, farm managers can modify their own farm's storage.
+Optional auto-scale settings keep expanded vehicles drivable by adjusting mass and load/discharge speed proportionally.
+
+Supports multiplayer with permission system.
 
 Features:
 - Press K near any supported storage or vehicle to open capacity dialog
+- Press K while driving to adjust your vehicle and attached implements
 - Press K in Production, Animals, Workshop, or Construction menus
 - Edit capacity for each fill type or fill unit
+- "Reset All" button to restore original capacities
 - Capacity protection: clamps to fill level to prevent data loss
+- Auto-scale vehicle mass and load/discharge speed (optional)
 - Optional setting to hide trigger shortcuts (menu access always available)
-- Configurable key binding for opening dialogs
+- Configurable key binding
 - Multiplayer support with permissions
 
 Supported:
@@ -35,9 +40,14 @@ Not Supported:
 - Vehicle pallets and big bags (products, not containers)
 - Leveler fill units (internal buffers)
 
-Console commands available.
-
 Changelog:
+
+0.6.0.0 (Beta):
+- Added in-vehicle capacity adjustment: press K while driving to adjust capacity of your vehicle and attached implements
+- Added auto-scale vehicle mass setting: keeps expanded vehicles drivable by scaling weight to original capacity
+- Added "Reset All" button (X) to storage and vehicle capacity dialogs to restore original capacities
+- Fixed multiplayer client not resetting all storage capacities when using reset
+- Added auto-scale speed setting: controls whether load and discharge speed scales proportionally with capacity changes
 
 0.5.1.0 (Beta):
 - K now automatically yields to any active native trigger in another try to prevent occlusion
