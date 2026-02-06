@@ -10,6 +10,7 @@ RmAscSettings = {}
 
 -- Runtime state (1 = OFF, 2 = ON; BinaryOption convention)
 RmAscSettings.showTriggerShortcutState = 2  -- default: enabled
+RmAscSettings.autoScaleMassState = 2  -- default: enabled
 
 -- GUI element reference
 RmAscSettings.uiInitialized = false
@@ -88,6 +89,23 @@ function RmAscSettings.initGui()
     container:setVisible(true)
     container:setDisabled(false)
 
+    -- Clone BinaryOption for auto-scale mass toggle
+    local massContainer = binaryOptionTemplate:clone(scrollPanel)
+    massContainer.id = nil
+
+    local massBinaryOption = massContainer.elements[1]
+    local massTitleText = massContainer.elements[2]
+
+    massTitleText:setText(g_i18n:getText("rm_asc_settings_autoScaleMass"))
+    massBinaryOption.elements[1]:setText(g_i18n:getText("rm_asc_settings_autoScaleMass_tooltip"))
+    massBinaryOption.id = "rmAscAutoScaleMass"
+    massBinaryOption.onClickCallback = RmAscSettings.onAutoScaleMassChanged
+
+    settingsPage.rmAscAutoScaleMass = massBinaryOption
+
+    massContainer:setVisible(true)
+    massContainer:setDisabled(false)
+
     scrollPanel:invalidateLayout()
 
     RmAscSettings.uiInitialized = true
@@ -151,6 +169,49 @@ function RmAscSettings.updateShowTriggerShortcut(state, noEventSend)
     end
 end
 
+--- Called when auto-scale mass BinaryOption is clicked
+---@param _ table element (unused)
+---@param state number New state (1 = OFF, 2 = ON)
+function RmAscSettings.onAutoScaleMassChanged(_, state)
+    RmAscSettings.updateAutoScaleMass(state)
+end
+
+--- Update auto-scale mass setting and sync
+---@param state number New state (1 = OFF, 2 = ON)
+---@param noEventSend boolean|nil If true, skip network event (used during sync)
+function RmAscSettings.updateAutoScaleMass(state, noEventSend)
+    if state ~= RmAscSettings.autoScaleMassState then
+        RmAscSettings.autoScaleMassState = state
+        RmAdjustStorageCapacity.autoScaleMass = (state == 2)
+        local enabled = (state == 2)
+        Log:info("RmAscSettings: Auto-scale mass %s", enabled and "enabled" or "disabled")
+
+        -- Dirty mass on all vehicles so updateMass() recalculates with new setting
+        RmAscSettings.dirtyAllVehicleMass()
+
+        RmSettingsSyncEvent.sendEvent(noEventSend)
+    end
+end
+
+--- Force mass recalculation on all vehicles with expanded capacities
+function RmAscSettings.dirtyAllVehicleMass()
+    if g_currentMission == nil or g_currentMission.vehicleSystem == nil then
+        return
+    end
+
+    local count = 0
+    for _, vehicle in pairs(g_currentMission.vehicleSystem.vehicles or {}) do
+        if vehicle.setMassDirty ~= nil and vehicle[RmVehicleStorageCapacity.SPEC_TABLE_NAME] ~= nil then
+            vehicle:setMassDirty()
+            count = count + 1
+        end
+    end
+
+    if count > 0 then
+        Log:debug("RmAscSettings: Dirtied mass on %d vehicles", count)
+    end
+end
+
 -- ============================================================================
 -- UI State Update
 -- ============================================================================
@@ -161,6 +222,11 @@ function RmAscSettings.updateGameSettings(settingsPage)
     local element = settingsPage.rmAscShowTriggerShortcut
     if element ~= nil then
         element:setState(RmAscSettings.showTriggerShortcutState)
+    end
+
+    local massElement = settingsPage.rmAscAutoScaleMass
+    if massElement ~= nil then
+        massElement:setState(RmAscSettings.autoScaleMassState)
     end
 end
 
@@ -181,9 +247,14 @@ function RmAscSettings.loadFromXMLFile()
     if xmlFile ~= nil then
         local shortcutEnabled = xmlFile:getBool("rmAscSettings#showTriggerShortcut", true)
         RmAscSettings.showTriggerShortcutState = shortcutEnabled and 2 or 1
+
+        local autoScaleMass = xmlFile:getBool("rmAscSettings#autoScaleMass", true)
+        RmAscSettings.autoScaleMassState = autoScaleMass and 2 or 1
+        RmAdjustStorageCapacity.autoScaleMass = autoScaleMass
+
         xmlFile:delete()
-        Log:debug("RmAscSettings: Loaded from %s (showTriggerShortcut=%s)",
-            filePath, tostring(shortcutEnabled))
+        Log:debug("RmAscSettings: Loaded from %s (showTriggerShortcut=%s, autoScaleMass=%s)",
+            filePath, tostring(shortcutEnabled), tostring(autoScaleMass))
     end
 end
 
@@ -204,6 +275,8 @@ function RmAscSettings.saveToXMLFile()
     if xmlFile ~= nil then
         xmlFile:setBool("rmAscSettings#showTriggerShortcut",
             RmAscSettings.showTriggerShortcutState == 2)
+        xmlFile:setBool("rmAscSettings#autoScaleMass",
+            RmAscSettings.autoScaleMassState == 2)
         xmlFile:save()
         xmlFile:delete()
         Log:debug("RmAscSettings: Saved to %s", filePath)

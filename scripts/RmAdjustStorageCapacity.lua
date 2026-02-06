@@ -30,6 +30,9 @@ RmAdjustStorageCapacity.originalCapacities = {}
 -- Auto-scale speed when capacity changes (enabled by default)
 RmAdjustStorageCapacity.autoScaleSpeed = true
 
+-- Auto-scale mass when capacity is expanded (enabled by default)
+RmAdjustStorageCapacity.autoScaleMass = true
+
 -- Storage for custom vehicle capacities
 -- Key = uniqueId, Value = {[fillUnitIndex] = capacity}
 RmAdjustStorageCapacity.vehicleCapacities = {}
@@ -269,6 +272,8 @@ function RmAdjustStorageCapacity:loadMap()
         "consoleCommandSetVehicle", self)
     addConsoleCommand("ascResetVehicle", "Resets vehicle capacity: ascResetVehicle <index> [fillUnit]",
         "consoleCommandResetVehicle", self)
+    addConsoleCommand("ascVehicleMass", "Shows mass breakdown for controlled vehicle",
+        "consoleCommandVehicleMass", self)
 end
 
 --- Called when mission starts (via hook) - placeables are populated at this point
@@ -2073,6 +2078,91 @@ function RmAdjustStorageCapacity:consoleCommandResetVehicle(indexStr, fillUnitSt
     return "Vehicle capacity reset requested..."
 end
 
+--- Console command: show mass breakdown for controlled vehicle and attached implements
+function RmAdjustStorageCapacity:consoleCommandVehicleMass()
+    local rootVehicle = g_localPlayer ~= nil and g_localPlayer:getCurrentVehicle() or nil
+    if rootVehicle == nil then
+        return "Enter a vehicle first"
+    end
+
+    print(string.format("autoScaleMass: %s", tostring(RmAdjustStorageCapacity.autoScaleMass)))
+    print("")
+
+    -- Print mass info for a single vehicle
+    local function printVehicleMass(vehicle, indent)
+        local prefix = indent or ""
+        local name = vehicle:getName() or "Unknown"
+        local fillUnitSpec = vehicle.spec_fillUnit
+
+        print(string.format("%s=== %s ===", prefix, name))
+        print(string.format("%s  serverMass: %.1f t", prefix, vehicle.serverMass or 0))
+        print(string.format("%s  maxComponentMass: %s", prefix, tostring(vehicle.maxComponentMass)))
+
+        if fillUnitSpec == nil or fillUnitSpec.fillUnits == nil or #fillUnitSpec.fillUnits == 0 then
+            print(string.format("%s  (no fill units)", prefix))
+            return
+        end
+
+        local rmSpec = vehicle[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
+        print(string.format("%s  rmSpec present: %s", prefix, tostring(rmSpec ~= nil)))
+
+        if rmSpec and rmSpec.originalCapacities then
+            local count = 0
+            for _ in pairs(rmSpec.originalCapacities) do count = count + 1 end
+            print(string.format("%s  originalCapacities captured: %d", prefix, count))
+        end
+
+        for i, fillUnit in ipairs(fillUnitSpec.fillUnits) do
+            local fillTypeName = "EMPTY"
+            local massPerLiter = 0
+            if fillUnit.fillType ~= nil and fillUnit.fillType ~= FillType.UNKNOWN then
+                fillTypeName = g_fillTypeManager:getFillTypeNameByIndex(fillUnit.fillType) or "?"
+                local desc = g_fillTypeManager:getFillTypeByIndex(fillUnit.fillType)
+                if desc then
+                    massPerLiter = desc.massPerLiter
+                end
+            end
+
+            local origCap = rmSpec and rmSpec.originalCapacities and rmSpec.originalCapacities[i] or nil
+            local gameMass = fillUnit.fillLevel * massPerLiter
+            local isExpanded = origCap ~= nil and fillUnit.capacity > origCap
+
+            print(string.format("%s  FillUnit[%d]: %s", prefix, i, fillTypeName))
+            print(string.format("%s    capacity: %d (original: %s)", prefix, fillUnit.capacity, origCap and tostring(origCap) or "N/A"))
+            print(string.format("%s    fillLevel: %d / %d", prefix, fillUnit.fillLevel, fillUnit.capacity))
+            print(string.format("%s    massPerLiter: %.4f t/L", prefix, massPerLiter))
+            print(string.format("%s    gameMass: %.1f t", prefix, gameMass))
+            print(string.format("%s    updateMass: %s", prefix, tostring(fillUnit.updateMass)))
+
+            if isExpanded then
+                local multiplier = origCap / fillUnit.capacity
+                local scaledMass = fillUnit.fillLevel * massPerLiter * multiplier
+                local delta = scaledMass - gameMass
+                print(string.format("%s    EXPANDED: multiplier=%.4f, scaledMass=%.1f t, delta=%.1f t",
+                    prefix, multiplier, scaledMass, delta))
+            end
+        end
+    end
+
+    -- Recursively print vehicle and all attached implements
+    local function printVehicleChain(vehicle, depth)
+        local indent = string.rep("  ", depth)
+        printVehicleMass(vehicle, indent)
+
+        if vehicle.getAttachedImplements ~= nil then
+            for _, implement in pairs(vehicle:getAttachedImplements()) do
+                if implement.object ~= nil then
+                    print("")
+                    printVehicleChain(implement.object, depth + 1)
+                end
+            end
+        end
+    end
+
+    printVehicleChain(rootVehicle, 0)
+    return ""
+end
+
 -- ============================================================================
 -- Debug/Logging
 -- ============================================================================
@@ -2132,6 +2222,7 @@ function RmAdjustStorageCapacity:deleteMap()
     removeConsoleCommand("ascListVehicles")
     removeConsoleCommand("ascSetVehicle")
     removeConsoleCommand("ascResetVehicle")
+    removeConsoleCommand("ascVehicleMass")
 
     RmLogging.unregisterConsoleCommands()
 

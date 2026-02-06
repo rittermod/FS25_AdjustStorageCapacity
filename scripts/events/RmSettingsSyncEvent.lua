@@ -25,12 +25,14 @@ end
 ---@param connection table Source connection
 function RmSettingsSyncEvent:readStream(streamId, connection)
     local showTriggerShortcut = streamReadInt32(streamId)
+    local autoScaleMass = streamReadInt32(streamId)
 
     -- Accept from server, or from master user (admin) on client-to-server
     if connection:getIsServer()
         or g_currentMission.userManager:getIsConnectionMasterUser(connection) then
 
         RmAscSettings.updateShowTriggerShortcut(showTriggerShortcut, true)
+        RmAscSettings.updateAutoScaleMass(autoScaleMass, true)
 
         -- If received from client, re-broadcast to all other clients
         if not connection:getIsServer() then
@@ -46,6 +48,7 @@ end
 ---@param connection table Connection (unused)
 function RmSettingsSyncEvent:writeStream(streamId, connection)
     streamWriteInt32(streamId, RmAscSettings.showTriggerShortcutState)
+    streamWriteInt32(streamId, RmAscSettings.autoScaleMassState)
 end
 
 --- Send settings sync event

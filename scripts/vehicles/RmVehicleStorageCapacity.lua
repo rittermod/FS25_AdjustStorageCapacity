@@ -98,6 +98,14 @@ function RmVehicleStorageCapacity.registerXMLPaths(_schema)
     -- Savegame paths are registered in initSpecialization()
 end
 
+--- Register overwritten functions for this specialization
+--- This is the correct way to override cross-specialization functions in FS25.
+--- Utils.overwrittenFunction on the class table does NOT work because the specialization
+--- system has already built the function chain per vehicle type by initSpecialization time.
+function RmVehicleStorageCapacity.registerOverwrittenFunctions(vehicleType)
+    SpecializationUtil.registerOverwrittenFunction(vehicleType, "getAdditionalComponentMass", RmVehicleStorageCapacity.getAdditionalComponentMassOverride)
+end
+
 --- Register event listeners for this specialization
 function RmVehicleStorageCapacity.registerEventListeners(vehicleType)
     SpecializationUtil.registerEventListener(vehicleType, "onLoad", RmVehicleStorageCapacity)
@@ -499,6 +507,56 @@ function RmVehicleStorageCapacity:resetDischargeSpeed(fillUnitIndex)
             end
         end
     end
+end
+
+-- ============================================================================
+-- Proportional Mass Scaling
+-- ============================================================================
+
+--- Override for FillUnit.getAdditionalComponentMass
+--- Applies proportional mass scaling for vehicles with expanded capacity.
+--- Uses delta calculation to preserve other specialization chains.
+---@param superFunc function Original function
+---@param component table Vehicle component
+---@return number additionalMass Adjusted additional mass
+function RmVehicleStorageCapacity:getAdditionalComponentMassOverride(superFunc, component)
+    local originalResult = superFunc(self, component)
+
+    if not RmAdjustStorageCapacity.autoScaleMass then
+        return originalResult
+    end
+
+    local rmSpec = self[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
+    if rmSpec == nil or rmSpec.originalCapacities == nil then
+        return originalResult
+    end
+
+    local spec = self.spec_fillUnit
+    if spec == nil or spec.fillUnits == nil then
+        return originalResult
+    end
+
+    local massAdjustment = 0
+
+    for i, fillUnit in ipairs(spec.fillUnits) do
+        if fillUnit.updateMass and fillUnit.fillMassNode == component.node
+           and fillUnit.fillType ~= nil and fillUnit.fillType ~= FillType.UNKNOWN then
+            local origCap = rmSpec.originalCapacities[i]
+
+            -- Only scale when capacity was EXPANDED (not reduced)
+            if origCap ~= nil and fillUnit.capacity > origCap then
+                local desc = g_fillTypeManager:getFillTypeByIndex(fillUnit.fillType)
+                if desc ~= nil then
+                    local originalMass = fillUnit.fillLevel * desc.massPerLiter
+                    local massMultiplier = origCap / fillUnit.capacity
+                    local scaledMass = fillUnit.fillLevel * desc.massPerLiter * massMultiplier
+                    massAdjustment = massAdjustment + (scaledMass - originalMass)
+                end
+            end
+        end
+    end
+
+    return originalResult + massAdjustment
 end
 
 -- ============================================================================
