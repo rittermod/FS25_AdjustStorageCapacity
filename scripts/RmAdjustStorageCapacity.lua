@@ -52,7 +52,7 @@ local CONSOLE_ERRORS = {
 
 -- Get logger for this module (prefix auto-generated with context suffix)
 local Log = RmLogging.getLogger("AdjustStorageCapacity")
--- Log:setLevel(RmLogging.LOG_LEVEL.TRACE) -- TODO: Change to INFO for release
+Log:setLevel(RmLogging.LOG_LEVEL.TRACE) -- TODO: Change to INFO for release
 
 -- ============================================================================
 -- Storage Enumeration and Type Detection
@@ -286,12 +286,19 @@ function RmAdjustStorageCapacity.onMissionStarted()
     -- Register GUI dialogs
     RmStorageCapacityDialog.register()
     RmVehicleCapacityDialog.register()
+    RmVehiclePickerDialog.register()
 
     -- Initialize menu integration (adds K button to production/husbandry menus)
     RmMenuIntegration.init()
 
     -- Initialize vehicle detection handler (player-attached trigger for vehicles)
     RmVehicleDetectionHandler.init()
+
+    -- Hook into player input to register K in VEHICLE context (in-vehicle capacity adjustment)
+    PlayerInputComponent.registerGlobalPlayerActionEvents = Utils.appendedFunction(
+        PlayerInputComponent.registerGlobalPlayerActionEvents,
+        RmAdjustStorageCapacity.addPlayerActionEvents
+    )
 
     -- Capture original capacities for any storages not yet captured
     -- Note: Most placeables have originals captured in onLoad() (before custom capacities apply)
@@ -301,6 +308,137 @@ function RmAdjustStorageCapacity.onMissionStarted()
     -- Log current state
     RmAdjustStorageCapacity:logAllStorages()
     RmAdjustStorageCapacity:logAllVehicles()
+end
+
+-- ============================================================================
+-- In-Vehicle Keybind (K while driving)
+-- ============================================================================
+
+--- Registers K action in VEHICLE input context via PlayerInputComponent hook.
+--- PLAYER context is handled by the existing activatable system, so we skip it here.
+--- Called via Utils.appendedFunction on PlayerInputComponent.registerGlobalPlayerActionEvents.
+---@param playerInputComponent table PlayerInputComponent instance
+---@param controlling string Input context name ("VEHICLE" when in a vehicle)
+function RmAdjustStorageCapacity.addPlayerActionEvents(playerInputComponent, controlling)
+    -- Only register in VEHICLE context
+    -- PLAYER context is handled by RmVehicleCapacityActivatable / RmPlaceableCapacityActivatable
+    if controlling ~= "VEHICLE" then
+        return
+    end
+
+    local _, actionEventId = g_inputBinding:registerActionEvent(
+        InputAction.RM_ADJUST_STORAGE_CAPACITY,
+        RmAdjustStorageCapacity,
+        RmAdjustStorageCapacity.onInVehicleKeybindPressed,
+        false, -- triggerUp
+        true,  -- triggerDown
+        false, -- triggerAlways
+        true,  -- startActive
+        nil,   -- callbackState
+        true   -- disableConflictingBindings
+    )
+    -- Note: success is false in VEHICLE context even when registration succeeds (FS25 quirk)
+
+    if actionEventId ~= nil then
+        -- Get current vehicle from the player's state machine (correct API for vehicle context)
+        local currentVehicle = playerInputComponent.player:getCurrentVehicle()
+        local eligible = RmAdjustStorageCapacity:collectEligibleVehicles(currentVehicle)
+        local hasEligible = #eligible > 0
+
+        g_inputBinding:setActionEventTextVisibility(actionEventId, hasEligible)
+        g_inputBinding:setActionEventText(actionEventId, g_i18n:getText("rm_asc_action_adjustVehicleCapacity"))
+        g_inputBinding:setActionEventTextPriority(actionEventId, GS_PRIO_LOW)
+
+        Log:debug("In-vehicle K registered (vehicle=%s, eligible=%d, visible=%s)",
+            currentVehicle ~= nil and currentVehicle:getName() or "nil", #eligible, tostring(hasEligible))
+    else
+        Log:debug("In-vehicle K registration: actionEventId is nil (controlling=%s)", tostring(controlling))
+    end
+end
+
+--- Called when K is pressed while in a vehicle.
+--- Collects eligible vehicles in the attachment train and routes to dialog or picker.
+---@param _actionName string The action name (unused)
+---@param _inputValue number The input value (unused)
+function RmAdjustStorageCapacity:onInVehicleKeybindPressed(_actionName, _inputValue)
+    local controlledVehicle = g_localPlayer ~= nil and g_localPlayer:getCurrentVehicle() or nil
+    if controlledVehicle == nil then
+        Log:debug("In-vehicle K pressed but no controlled vehicle found")
+        return
+    end
+
+    Log:debug("In-vehicle K pressed, vehicle=%s", controlledVehicle:getName())
+    local eligible = self:collectEligibleVehicles(controlledVehicle)
+
+    if #eligible == 0 then
+        g_currentMission:addIngameNotification(
+            FSBaseMission.INGAME_NOTIFICATION_INFO,
+            g_i18n:getText("rm_asc_noAdjustableVehicles")
+        )
+        return
+    end
+
+    -- Check if there are any attached implements in the eligible list
+    local hasImplements = false
+    for _, vehicle in ipairs(eligible) do
+        if vehicle ~= controlledVehicle then
+            hasImplements = true
+            break
+        end
+    end
+
+    if #eligible == 1 or not hasImplements then
+        -- Single eligible or only the driven vehicle: open dialog directly
+        local vehicle = eligible[1]
+        local canModify, errorKey = self:canModifyVehicleCapacity(vehicle)
+        if not canModify then
+            g_currentMission:addIngameNotification(
+                FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
+                g_i18n:getText(errorKey)
+            )
+            return
+        end
+        Log:debug("In-vehicle K: opening dialog for %s (direct)", vehicle:getName())
+        RmVehicleCapacityDialog.show(vehicle)
+    else
+        -- Multiple eligible with implements: show picker
+        Log:debug("In-vehicle K: showing picker (%d vehicles)", #eligible)
+        RmVehiclePickerDialog.show(eligible)
+    end
+end
+
+--- Collects all eligible vehicles in the attachment train (root vehicle + implements).
+--- Walks the attachment tree recursively via getAttachedImplements().
+---@param rootVehicle table The root vehicle (usually the controlled vehicle)
+---@return table eligible Array of eligible vehicle objects
+function RmAdjustStorageCapacity:collectEligibleVehicles(rootVehicle)
+    local eligible = {}
+    if rootVehicle == nil then
+        return eligible
+    end
+
+    -- Check root vehicle itself
+    if RmVehicleStorageCapacity.isVehicleSupported(rootVehicle) then
+        table.insert(eligible, rootVehicle)
+    end
+
+    -- Recursively check attached implements
+    local function traverse(vehicle)
+        if vehicle.getAttachedImplements == nil then
+            return
+        end
+        for _, impl in pairs(vehicle:getAttachedImplements()) do
+            if impl.object ~= nil then
+                if RmVehicleStorageCapacity.isVehicleSupported(impl.object) then
+                    table.insert(eligible, impl.object)
+                end
+                traverse(impl.object)
+            end
+        end
+    end
+    traverse(rootVehicle)
+
+    return eligible
 end
 
 -- ============================================================================
@@ -639,7 +777,7 @@ function RmAdjustStorageCapacity:recreateStorageDynamicFillPlane(storage)
         1.0,          -- maxDelta: max heap height above surface
         math.rad(35), -- maxSurfaceAngle: heap slope angle
         math.rad(35), -- maxPhysicalSurfaceAngle: physical slope angle
-        0.05,         -- maxSurfaceDistanceError: precision 
+        0.05,         -- maxSurfaceDistanceError: precision
         0.9,          -- maxSubDivEdgeLength: mesh subdivision
         1.35,         -- syncMaxSubDivEdgeLength: multiplayer sync subdivision
         false,        -- allSidePlanes
@@ -2128,7 +2266,8 @@ function RmAdjustStorageCapacity:consoleCommandVehicleMass()
             local isExpanded = origCap ~= nil and fillUnit.capacity > origCap
 
             print(string.format("%s  FillUnit[%d]: %s", prefix, i, fillTypeName))
-            print(string.format("%s    capacity: %d (original: %s)", prefix, fillUnit.capacity, origCap and tostring(origCap) or "N/A"))
+            print(string.format("%s    capacity: %d (original: %s)", prefix, fillUnit.capacity,
+                origCap and tostring(origCap) or "N/A"))
             print(string.format("%s    fillLevel: %d / %d", prefix, fillUnit.fillLevel, fillUnit.capacity))
             print(string.format("%s    massPerLiter: %.4f t/L", prefix, massPerLiter))
             print(string.format("%s    gameMass: %.1f t", prefix, gameMass))

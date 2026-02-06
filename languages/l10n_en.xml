@@ -45,6 +45,11 @@
         <text name="rm_asc_vehicle_capacitySet" text="Capacity for %s set to %d"/>
         <text name="rm_asc_vehicle_capacitySet_clamped" text="Capacity for %s set to %d (current fill level)"/>
 
+        <!-- Vehicle picker (in-vehicle K press) -->
+        <text name="rm_asc_picker_title" text="Select Vehicle"/>
+        <text name="rm_asc_picker_fillUnits" text="%d fill units"/>
+        <text name="rm_asc_noAdjustableVehicles" text="No adjustable vehicles"/>
+
         <!-- Settings -->
         <text name="rm_asc_settings_section" text="Adjust Storage Capacity"/>
         <text name="rm_asc_settings_showTriggerShortcut" text="Show shortcut at triggers"/>

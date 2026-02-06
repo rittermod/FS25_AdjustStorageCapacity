@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8" standalone="no" ?>
+<GUI onOpen="onOpen" onClose="onClose" onCreate="onCreate">
+    <GuiElement profile="newLayer"/>
+    <Bitmap profile="dialogFullscreenBg" id="dialogBg"/>
+    <GuiElement profile="fs25_dialogBg" id="dialogElement" size="700px 450px">
+        <ThreePartBitmap profile="fs25_dialogBgMiddle"/>
+        <ThreePartBitmap profile="fs25_dialogBgTop"/>
+        <ThreePartBitmap profile="fs25_dialogBgBottom"/>
+        <GuiElement profile="fs25_dialogContentContainer">
+            <Text profile="dialogTitle" text="$l10n_rm_asc_picker_title" id="dialogTitleElement" position="0px -30px"/>
+
+            <!-- Vehicle list -->
+            <SmoothList profile="rmAscFillTypeList" id="vehicleList" position="50px -80px" size="570px 270px" focusInit="onOpen" focusChangeTop="nil" focusChangeBottom="nil" onClick="onListClick">
+                <ListItem profile="rmAscFillTypeListItem" name="vehicleRowTemplate" size="555px 55px">
+                    <Bitmap profile="rmAscFillTypeIcon" position="10px -8px" size="40px 40px" name="vehicleIcon"/>
+                    <Text profile="rmAscFillTypeName" position="60px -5px" size="400px 28px" name="vehicleName"/>
+                    <Text profile="rmAscFillTypeCapacity" position="60px -30px" size="400px 22px" name="vehicleInfo"/>
+                </ListItem>
+            </SmoothList>
+
+            <!-- Scrollbar -->
+            <ThreePartBitmap profile="fs25_listSliderBox" position="-30px -17px" size="12px 270px" with="anchorTopRight">
+                <Slider profile="fs25_listSlider" size="6px 262px" dataElementId="vehicleList" id="listSlider"/>
+            </ThreePartBitmap>
+        </GuiElement>
+
+        <!-- Buttons -->
+        <BoxLayout profile="fs25_dialogButtonBox" size="600px 60px">
+            <Button profile="buttonBack" text="$l10n_rm_asc_dialog_close" onClick="onClickClose"/>
+        </BoxLayout>
+    </GuiElement>
+</GUI>
