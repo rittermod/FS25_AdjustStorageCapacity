@@ -56,5 +56,7 @@
         <text name="rm_asc_settings_showTriggerShortcut_tooltip" text="Show the capacity adjustment shortcut when walking near placeables and vehicles. Menu access (Production, Animals, Workshop, Construction) is always available."/>
         <text name="rm_asc_settings_autoScaleMass" text="Auto-scale vehicle mass"/>
         <text name="rm_asc_settings_autoScaleMass_tooltip" text="Automatically reduce vehicle mass when capacity is expanded, keeping weight proportional to the original capacity. Prevents expanded vehicles from becoming too heavy to drive."/>
+        <text name="rm_asc_settings_autoScaleSpeed" text="Auto-scale load/discharge speed"/>
+        <text name="rm_asc_settings_autoScaleSpeed_tooltip" text="Automatically scale load and discharge speed proportionally when capacity is changed. Prevents expanded storages from taking too long to fill or empty."/>
     </texts>
 </l10n>

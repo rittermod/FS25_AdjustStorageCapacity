@@ -11,6 +11,7 @@ RmAscSettings = {}
 -- Runtime state (1 = OFF, 2 = ON; BinaryOption convention)
 RmAscSettings.showTriggerShortcutState = 2  -- default: enabled
 RmAscSettings.autoScaleMassState = 2  -- default: enabled
+RmAscSettings.autoScaleSpeedState = 2  -- default: enabled
 
 -- GUI element reference
 RmAscSettings.uiInitialized = false
@@ -105,6 +106,23 @@ function RmAscSettings.initGui()
 
     massContainer:setVisible(true)
     massContainer:setDisabled(false)
+
+    -- Clone BinaryOption for auto-scale speed toggle
+    local speedContainer = binaryOptionTemplate:clone(scrollPanel)
+    speedContainer.id = nil
+
+    local speedBinaryOption = speedContainer.elements[1]
+    local speedTitleText = speedContainer.elements[2]
+
+    speedTitleText:setText(g_i18n:getText("rm_asc_settings_autoScaleSpeed"))
+    speedBinaryOption.elements[1]:setText(g_i18n:getText("rm_asc_settings_autoScaleSpeed_tooltip"))
+    speedBinaryOption.id = "rmAscAutoScaleSpeed"
+    speedBinaryOption.onClickCallback = RmAscSettings.onAutoScaleSpeedChanged
+
+    settingsPage.rmAscAutoScaleSpeed = speedBinaryOption
+
+    speedContainer:setVisible(true)
+    speedContainer:setDisabled(false)
 
     scrollPanel:invalidateLayout()
 
@@ -212,6 +230,80 @@ function RmAscSettings.dirtyAllVehicleMass()
     end
 end
 
+--- Called when auto-scale speed BinaryOption is clicked
+---@param _ table element (unused)
+---@param state number New state (1 = OFF, 2 = ON)
+function RmAscSettings.onAutoScaleSpeedChanged(_, state)
+    RmAscSettings.updateAutoScaleSpeed(state)
+end
+
+--- Update auto-scale speed setting and sync
+---@param state number New state (1 = OFF, 2 = ON)
+---@param noEventSend boolean|nil If true, skip network event (used during sync)
+function RmAscSettings.updateAutoScaleSpeed(state, noEventSend)
+    if state ~= RmAscSettings.autoScaleSpeedState then
+        RmAscSettings.autoScaleSpeedState = state
+        RmAdjustStorageCapacity.autoScaleSpeed = (state == 2)
+        local enabled = (state == 2)
+        Log:info("RmAscSettings: Auto-scale speed %s", enabled and "enabled" or "disabled")
+
+        RmAscSettings.reapplyAllSpeeds()
+
+        RmSettingsSyncEvent.sendEvent(noEventSend)
+    end
+end
+
+--- Re-apply or reset all load/discharge speeds based on current autoScaleSpeed setting
+function RmAscSettings.reapplyAllSpeeds()
+    local enabled = RmAdjustStorageCapacity.autoScaleSpeed
+    local placeableCount = 0
+    local vehicleCount = 0
+
+    -- Handle placeables (load speed)
+    if g_currentMission ~= nil and g_currentMission.placeableSystem ~= nil then
+        for _, placeable in ipairs(g_currentMission.placeableSystem.placeables or {}) do
+            local uniqueId = placeable.uniqueId
+            if uniqueId ~= nil and RmAdjustStorageCapacity.customCapacities[uniqueId] ~= nil then
+                if enabled then
+                    local customCapacity = RmAdjustStorageCapacity.customCapacities[uniqueId]
+                    local multiplier = RmAdjustStorageCapacity:getMaxCapacityMultiplier(placeable, customCapacity)
+                    if multiplier ~= 1.0 then
+                        RmAdjustStorageCapacity:applyProportionalLoadSpeed(placeable, multiplier)
+                    end
+                else
+                    RmAdjustStorageCapacity:resetLoadSpeed(placeable)
+                end
+                placeableCount = placeableCount + 1
+            end
+        end
+    end
+
+    -- Handle vehicles (discharge speed)
+    if g_currentMission ~= nil and g_currentMission.vehicleSystem ~= nil then
+        for _, vehicle in pairs(g_currentMission.vehicleSystem.vehicles or {}) do
+            local spec = vehicle[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
+            if spec ~= nil then
+                local uniqueId = vehicle.uniqueId
+                if uniqueId ~= nil and RmAdjustStorageCapacity.vehicleCapacities[uniqueId] ~= nil then
+                    if enabled then
+                        for fillUnitIndex, capacity in pairs(RmAdjustStorageCapacity.vehicleCapacities[uniqueId]) do
+                            RmVehicleStorageCapacity.applyProportionalDischargeSpeed(vehicle, fillUnitIndex, capacity)
+                        end
+                    else
+                        RmVehicleStorageCapacity.resetDischargeSpeed(vehicle, nil)
+                    end
+                    vehicleCount = vehicleCount + 1
+                end
+            end
+        end
+    end
+
+    if placeableCount > 0 or vehicleCount > 0 then
+        Log:debug("RmAscSettings: Reapplied speeds on %d placeables, %d vehicles (enabled=%s)",
+            placeableCount, vehicleCount, tostring(enabled))
+    end
+end
+
 -- ============================================================================
 -- UI State Update
 -- ============================================================================
@@ -227,6 +319,11 @@ function RmAscSettings.updateGameSettings(settingsPage)
     local massElement = settingsPage.rmAscAutoScaleMass
     if massElement ~= nil then
         massElement:setState(RmAscSettings.autoScaleMassState)
+    end
+
+    local speedElement = settingsPage.rmAscAutoScaleSpeed
+    if speedElement ~= nil then
+        speedElement:setState(RmAscSettings.autoScaleSpeedState)
     end
 end
 
@@ -252,9 +349,13 @@ function RmAscSettings.loadFromXMLFile()
         RmAscSettings.autoScaleMassState = autoScaleMass and 2 or 1
         RmAdjustStorageCapacity.autoScaleMass = autoScaleMass
 
+        local autoScaleSpeed = xmlFile:getBool("rmAscSettings#autoScaleSpeed", true)
+        RmAscSettings.autoScaleSpeedState = autoScaleSpeed and 2 or 1
+        RmAdjustStorageCapacity.autoScaleSpeed = autoScaleSpeed
+
         xmlFile:delete()
-        Log:debug("RmAscSettings: Loaded from %s (showTriggerShortcut=%s, autoScaleMass=%s)",
-            filePath, tostring(shortcutEnabled), tostring(autoScaleMass))
+        Log:debug("RmAscSettings: Loaded from %s (showTriggerShortcut=%s, autoScaleMass=%s, autoScaleSpeed=%s)",
+            filePath, tostring(shortcutEnabled), tostring(autoScaleMass), tostring(autoScaleSpeed))
     end
 end
 
@@ -277,6 +378,8 @@ function RmAscSettings.saveToXMLFile()
             RmAscSettings.showTriggerShortcutState == 2)
         xmlFile:setBool("rmAscSettings#autoScaleMass",
             RmAscSettings.autoScaleMassState == 2)
+        xmlFile:setBool("rmAscSettings#autoScaleSpeed",
+            RmAscSettings.autoScaleSpeedState == 2)
         xmlFile:save()
         xmlFile:delete()
         Log:debug("RmAscSettings: Saved to %s", filePath)
