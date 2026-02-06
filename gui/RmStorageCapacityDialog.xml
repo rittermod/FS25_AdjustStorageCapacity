@@ -31,6 +31,8 @@
 
         <!-- Buttons -->
         <BoxLayout profile="fs25_dialogButtonBox" size="600px 60px">
+            <Button profile="buttonExtra1" text="$l10n_rm_asc_dialog_resetAll" onClick="onClickResetAll"/>
+            <Bitmap profile="fs25_dialogButtonBoxSeparator"/>
             <Button profile="buttonBack" text="$l10n_rm_asc_dialog_close" onClick="onClickClose"/>
         </BoxLayout>
     </GuiElement>

@@ -331,6 +331,26 @@ function RmStorageCapacityDialog:onClickClose()
     self:close()
 end
 
+function RmStorageCapacityDialog:onClickResetAll()
+    Log:debug("RmStorageCapacityDialog:onClickResetAll()")
+
+    if self.placeable == nil then
+        return
+    end
+
+    -- Cancel any active editing before reset
+    if self.editingIndex ~= nil then
+        self:cancelEditing()
+    end
+
+    -- Reset all capacities for this placeable (nil = reset all)
+    RmStorageCapacitySyncEvent.sendResetCapacity(self.placeable, nil)
+
+    -- Refresh the list to show original capacities
+    self:refreshFillTypeList()
+    self.fillTypeList:reloadData()
+end
+
 -- Editing methods
 
 --- Checks if an entry can be edited

@@ -13,6 +13,9 @@ RmStorageCapacitySyncEvent = {}
 RmStorageCapacitySyncEvent.ACTION_SET_CAPACITY = 0
 RmStorageCapacitySyncEvent.ACTION_RESET_CAPACITY = 1
 
+-- Network sentinel: fillTypeIndex=-2 means "reset all" (nil can't be sent over network)
+RmStorageCapacitySyncEvent.FILL_TYPE_RESET_ALL = -2
+
 -- Result codes
 RmStorageCapacitySyncEvent.RESULT_OK = 0
 RmStorageCapacitySyncEvent.ERROR_NOT_FOUND = 1
@@ -194,13 +197,14 @@ function RmStorageCapacitySyncEvent:runOnServer(connection)
                 -- Permission granted, process the action
                 if hasPermission then
                     if self.actionType == RmStorageCapacitySyncEvent.ACTION_RESET_CAPACITY then
-                        -- Reset capacity
-                        local success, err = RmAdjustStorageCapacity:resetCapacity(placeable, self.fillTypeIndex)
+                        -- Reset capacity (convert network sentinel -2 back to nil for "reset all")
+                        local resetIndex = self.fillTypeIndex == RmStorageCapacitySyncEvent.FILL_TYPE_RESET_ALL and nil or self.fillTypeIndex
+                        local success, err = RmAdjustStorageCapacity:resetCapacity(placeable, resetIndex)
                         if success then
                             appliedCapacity = 0 -- Original capacity
                             errorCode = RmStorageCapacitySyncEvent.RESULT_OK
-                            Log:info("MP: Reset capacity for %s fillType=%d (by %s)",
-                                placeable:getName(), self.fillTypeIndex, playerName)
+                            Log:info("MP: Reset capacity for %s fillType=%s (by %s)",
+                                placeable:getName(), tostring(resetIndex), playerName)
                         else
                             errorCode = RmStorageCapacitySyncEvent.ERROR_UNKNOWN
                             Log:warning("Failed to reset capacity: %s", err or "unknown")
@@ -424,7 +428,7 @@ function RmStorageCapacitySyncEvent.sendResetCapacity(placeable, fillTypeIndex)
             -- Broadcast to clients if MP
             if isMultiplayer then
                 g_server:broadcastEvent(RmStorageCapacitySyncEvent.newServerToClient(
-                    RmStorageCapacitySyncEvent.RESULT_OK, placeable, fillTypeIndex or 0, 0))
+                    RmStorageCapacitySyncEvent.RESULT_OK, placeable, fillTypeIndex or RmStorageCapacitySyncEvent.FILL_TYPE_RESET_ALL, 0))
             end
 
             g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
@@ -436,6 +440,6 @@ function RmStorageCapacitySyncEvent.sendResetCapacity(placeable, fillTypeIndex)
         -- MP client: send to server
         Log:debug("Client sending RESET request to server")
         g_client:getServerConnection():sendEvent(RmStorageCapacitySyncEvent.new(
-            placeable, fillTypeIndex or 0, 0, RmStorageCapacitySyncEvent.ACTION_RESET_CAPACITY))
+            placeable, fillTypeIndex or RmStorageCapacitySyncEvent.FILL_TYPE_RESET_ALL, 0, RmStorageCapacitySyncEvent.ACTION_RESET_CAPACITY))
     end
 end

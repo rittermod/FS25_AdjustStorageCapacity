@@ -36,6 +36,7 @@
         <text name="rm_asc_dialog_cancel" text="Cancel"/>
         <text name="rm_asc_dialog_close" text="Close"/>
         <text name="rm_asc_dialog_hint" text="Double-click to edit capacity"/>
+        <text name="rm_asc_dialog_resetAll" text="Reset All"/>
 
         <!-- Vehicle capacity -->
         <text name="rm_asc_action_adjustVehicleCapacity" text="Adjust Vehicle Capacity"/>
