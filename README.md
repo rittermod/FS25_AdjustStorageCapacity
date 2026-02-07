@@ -147,6 +147,10 @@ The mod supports multiplayer with a permission system:
 
 ## Changelog
 
+### 0.6.1.0 (Beta):
+- Fixed excess fill not being removed when resetting capacity to original (shared capacity storages reduce proportionally)
+- Fixed reset failing on newly placed buildings with "No original capacities recorded" error
+
 ### 0.6.0.0 (Beta)
 
 - Added in-vehicle capacity adjustment: press K while driving to adjust capacity of your vehicle and attached implements

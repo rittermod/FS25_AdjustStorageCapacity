@@ -1132,6 +1132,121 @@ function RmAdjustStorageCapacity:applyHusbandryFoodCapacity(spec, newCapacity)
         oldCapacity, newCapacity, totalFill, spec.FILLLEVEL_NUM_BITS)
 end
 
+--- Clamp excess fill levels on a Storage object after capacity reduction.
+--- Per-filltype: clamps each fillType to its capacity.
+--- Shared capacity: proportionally reduces all fill types so total fits new capacity.
+---@param storage table The Storage object
+function RmAdjustStorageCapacity:clampExcessFill(storage)
+    if storage == nil or storage.fillLevels == nil then
+        return
+    end
+
+    -- Per-filltype capacity
+    if storage.capacities ~= nil and next(storage.capacities) ~= nil then
+        for fillTypeIndex, level in pairs(storage.fillLevels) do
+            local capacity = storage.capacities[fillTypeIndex]
+            if capacity ~= nil and level > capacity then
+                local fillType = g_fillTypeManager:getFillTypeByIndex(fillTypeIndex)
+                local fillTypeName = fillType and fillType.name or "UNKNOWN"
+                Log:info("Clamping overfill for %s: %d -> %d", fillTypeName, level, capacity)
+                storage:setFillLevel(capacity, fillTypeIndex)
+            end
+        end
+        return
+    end
+
+    -- Shared capacity: proportionally reduce all fill types
+    if storage.capacity ~= nil then
+        local totalFill = 0
+        for _, level in pairs(storage.fillLevels) do
+            totalFill = totalFill + level
+        end
+        if totalFill > storage.capacity and totalFill > 0 then
+            local ratio = storage.capacity / totalFill
+            Log:info("Proportionally reducing shared storage fill from %d to fit capacity %d",
+                totalFill, storage.capacity)
+            for ft, level in pairs(storage.fillLevels) do
+                if level > 0 then
+                    local newLevel = math.floor(level * ratio)
+                    storage:setFillLevel(newLevel, ft)
+                end
+            end
+        end
+    end
+end
+
+--- Clamp excess fill levels on HusbandryFood after capacity reduction.
+--- Proportionally reduces all food fill types so total fits new capacity.
+---@param placeable table The husbandry placeable
+function RmAdjustStorageCapacity:clampExcessHusbandryFood(placeable)
+    if placeable == nil then
+        return
+    end
+
+    local spec = placeable.spec_husbandryFood
+    if spec == nil or spec.fillLevels == nil then
+        return
+    end
+
+    local totalFill = 0
+    for _, level in pairs(spec.fillLevels) do
+        totalFill = totalFill + level
+    end
+
+    if totalFill > spec.capacity and totalFill > 0 then
+        local ratio = spec.capacity / totalFill
+        Log:info("Proportionally reducing husbandry food fill from %d to fit capacity %d",
+            totalFill, spec.capacity)
+        for ft, level in pairs(spec.fillLevels) do
+            if level > 0 then
+                local targetLevel = math.floor(level * ratio)
+                local excess = level - targetLevel
+                if excess > 0 then
+                    placeable:removeFood(excess, ft)
+                end
+            end
+        end
+    end
+end
+
+--- Clamp excess fill level on a vehicle fill unit after capacity reduction.
+--- If fillUnitIndex is nil, clamps all fill units.
+---@param vehicle table The vehicle
+---@param fillUnitIndex number|nil The fill unit index (nil = all)
+function RmAdjustStorageCapacity:clampExcessVehicleFill(vehicle, fillUnitIndex)
+    if vehicle == nil then
+        return
+    end
+
+    local fillUnitSpec = vehicle.spec_fillUnit
+    if fillUnitSpec == nil or fillUnitSpec.fillUnits == nil then
+        return
+    end
+
+    local farmId = vehicle:getOwnerFarmId()
+
+    if fillUnitIndex ~= nil then
+        local fillUnit = fillUnitSpec.fillUnits[fillUnitIndex]
+        if fillUnit ~= nil and fillUnit.fillLevel > fillUnit.capacity then
+            local excess = fillUnit.fillLevel - fillUnit.capacity
+            local fillType = vehicle:getFillUnitFillType(fillUnitIndex) or FillType.UNKNOWN
+            Log:info("Clamping vehicle %s fillUnit[%d] overfill: %d -> %d",
+                vehicle:getName(), fillUnitIndex, fillUnit.fillLevel, fillUnit.capacity)
+            vehicle:addFillUnitFillLevel(farmId, fillUnitIndex, -excess, fillType, ToolType.UNDEFINED)
+        end
+    else
+        for i, fillUnit in ipairs(fillUnitSpec.fillUnits) do
+            if fillUnit.fillLevel > fillUnit.capacity then
+                local excess = fillUnit.fillLevel - fillUnit.capacity
+                local fillType = vehicle:getFillUnitFillType(i) or FillType.UNKNOWN
+                Log:info("Clamping vehicle %s fillUnit[%d] overfill: %d -> %d",
+                    vehicle:getName(), i, fillUnit.fillLevel, fillUnit.capacity)
+                vehicle:addFillUnitFillLevel(farmId, i, -excess, fillType, ToolType.UNDEFINED)
+            end
+        end
+    end
+end
+
 -- ============================================================================
 -- Capacity Modification API
 -- ============================================================================
@@ -1321,6 +1436,7 @@ function RmAdjustStorageCapacity:resetCapacity(placeable, fillTypeIndex)
             local storageInfo = self:getStorageInfo(placeable)
             if storageInfo.husbandryFood ~= nil then
                 self:applyHusbandryFoodCapacity(storageInfo.husbandryFood, originals.husbandryFood)
+                self:clampExcessHusbandryFood(placeable)
                 -- Update visual fill planes
                 self:updatePlaceableFillPlanes(placeable)
             end
@@ -1351,6 +1467,11 @@ function RmAdjustStorageCapacity:resetCapacity(placeable, fillTypeIndex)
                 self:applyCapacitiesToPlaceable(placeable, customCapacity)
             end
 
+            -- Clamp excess fill after shared capacity reduction
+            for _, info in ipairs(storageInfo.storages) do
+                self:clampExcessFill(info.storage)
+            end
+
             Log:info("Reset shared capacity for %s to original", placeable:getName())
         else
             -- Reset per-filltype capacity
@@ -1362,6 +1483,11 @@ function RmAdjustStorageCapacity:resetCapacity(placeable, fillTypeIndex)
             if originals.fillTypes ~= nil and originals.fillTypes[fillTypeIndex] ~= nil then
                 local customCapacity = { fillTypes = { [fillTypeIndex] = originals.fillTypes[fillTypeIndex] } }
                 self:applyCapacitiesToPlaceable(placeable, customCapacity)
+            end
+
+            -- Clamp excess fill after per-filltype capacity reduction
+            for _, info in ipairs(storageInfo.storages) do
+                self:clampExcessFill(info.storage)
             end
 
             Log:info("Reset capacity for %s fillType=%d to original", placeable:getName(), fillTypeIndex)
@@ -1382,9 +1508,16 @@ function RmAdjustStorageCapacity:resetCapacity(placeable, fillTypeIndex)
             local storageInfo = self:getStorageInfo(placeable)
             if storageInfo.husbandryFood ~= nil then
                 self:applyHusbandryFoodCapacity(storageInfo.husbandryFood, originals.husbandryFood)
+                self:clampExcessHusbandryFood(placeable)
                 -- Update visual fill planes
                 self:updatePlaceableFillPlanes(placeable)
             end
+        end
+
+        -- Clamp excess fill after all capacity reductions
+        local storageInfo = self:getStorageInfo(placeable)
+        for _, info in ipairs(storageInfo.storages) do
+            self:clampExcessFill(info.storage)
         end
 
         -- Reset load speed to original
@@ -1490,6 +1623,9 @@ function RmAdjustStorageCapacity:resetVehicleCapacity(vehicle, fillUnitIndex)
             self:applyVehicleCapacity(vehicle, fillUnitIndex, originalCapacity)
         end
 
+        -- Clamp excess fill after capacity reduction
+        self:clampExcessVehicleFill(vehicle, fillUnitIndex)
+
         -- Explicitly reset discharge speed for this fill unit
         RmVehicleStorageCapacity.resetDischargeSpeed(vehicle, fillUnitIndex)
 
@@ -1502,6 +1638,9 @@ function RmAdjustStorageCapacity:resetVehicleCapacity(vehicle, fillUnitIndex)
         for fuIndex, originalCapacity in pairs(spec.originalCapacities) do
             self:applyVehicleCapacity(vehicle, fuIndex, originalCapacity)
         end
+
+        -- Clamp excess fill after all capacity reductions
+        self:clampExcessVehicleFill(vehicle, nil)
 
         -- Explicitly reset all discharge speeds
         RmVehicleStorageCapacity.resetDischargeSpeed(vehicle, nil)

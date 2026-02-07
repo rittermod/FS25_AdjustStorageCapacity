@@ -62,6 +62,7 @@ end
 function RmPlaceableStorageCapacity.registerEventListeners(placeableType)
     SpecializationUtil.registerEventListener(placeableType, "onLoad", RmPlaceableStorageCapacity)
     SpecializationUtil.registerEventListener(placeableType, "onPostLoad", RmPlaceableStorageCapacity)
+    SpecializationUtil.registerEventListener(placeableType, "onFinalizePlacement", RmPlaceableStorageCapacity)
     SpecializationUtil.registerEventListener(placeableType, "onDelete", RmPlaceableStorageCapacity)
     SpecializationUtil.registerEventListener(placeableType, "onReadStream", RmPlaceableStorageCapacity)
     SpecializationUtil.registerEventListener(placeableType, "onWriteStream", RmPlaceableStorageCapacity)
@@ -189,6 +190,22 @@ function RmPlaceableStorageCapacity:onPostLoad(savegame)
     Log:debug("onPostLoad complete: %s (uniqueId=%s, ownerFarmId=%s, storage types: %s)",
         self:getName(), tostring(self.uniqueId), tostring(ownerFarmId),
         table.concat(spec.storageTypes, ", "))
+end
+
+--- Called when placeable finalization completes (after uniqueId is assigned)
+--- For newly placed buildings, uniqueId is nil during onLoad but available here.
+--- Retries original capacity capture if it was missed in onLoad.
+function RmPlaceableStorageCapacity:onFinalizePlacement()
+    local uniqueId = self.uniqueId
+    if uniqueId == nil then
+        return
+    end
+
+    -- Capture original capacities if not already captured (e.g., new placements where
+    -- uniqueId was nil during onLoad)
+    if RmAdjustStorageCapacity.originalCapacities[uniqueId] == nil then
+        RmAdjustStorageCapacity:captureOriginalCapacities(self)
+    end
 end
 
 --- Detect which storage types are present on this placeable
