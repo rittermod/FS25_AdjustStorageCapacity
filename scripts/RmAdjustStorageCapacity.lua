@@ -720,13 +720,13 @@ function RmAdjustStorageCapacity:updatePlaceableFillPlanes(placeable)
 
     -- Update husbandry straw plane (separate visual from storage fillPlanes)
     -- PlaceableHusbandryStraw has its own strawPlane that only updates on fill level
-    -- changes, not capacity changes — so we must trigger it manually
+    -- changes, not capacity changes - so we must trigger it manually
     if placeable.updateStrawPlane ~= nil then
         placeable:updateStrawPlane()
         Log:trace("Updated husbandry straw plane")
     end
 
-    -- Update husbandry water plane (same pattern as straw — separate visual)
+    -- Update husbandry water plane (same pattern as straw - separate visual)
     if placeable.updateWaterPlane ~= nil then
         placeable:updateWaterPlane()
         Log:trace("Updated husbandry water plane")
@@ -1095,7 +1095,7 @@ function RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCap
         end
 
         -- Update visual fill planes to reflect new capacity
-        -- Skip during savegame load — fill levels are 0 at this point, so recreating
+        -- Skip during savegame load - fill levels are 0 at this point, so recreating
         -- 3D fill planes now would show empty. Deferred to loadFromXMLFile instead.
         if not skipVisualUpdate then
             self:updatePlaceableFillPlanes(placeable)

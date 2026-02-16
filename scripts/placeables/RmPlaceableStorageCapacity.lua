@@ -447,7 +447,7 @@ function RmPlaceableStorageCapacity:onReadStream(streamId, connection)
 end
 
 -- ============================================================================
--- Savegame XML Hooks (RIT-146 fix)
+-- Savegame XML Hooks (savegame load-order fix)
 -- NOTE: Capacity is now applied in onLoad() to ensure it happens BEFORE fill levels load.
 -- This loadFromXMLFile is kept as a no-op for compatibility.
 -- ============================================================================
@@ -455,7 +455,7 @@ end
 --- Load custom capacity from placeable's embedded savegame section
 --- NOTE: Capacity values are applied in onLoad() (BEFORE fill levels load to prevent clamping).
 --- This hook fires AFTER fill levels are loaded, so we use it for the deferred visual fill plane
---- update — 3D fill planes need correct fill levels to render properly.
+--- update - 3D fill planes need correct fill levels to render properly.
 ---@param _xmlFile table XMLFile object (unused - capacity loaded in onLoad)
 ---@param _key string Base key for this placeable (unused - capacity loaded in onLoad)
 function RmPlaceableStorageCapacity:loadFromXMLFile(_xmlFile, _key)
