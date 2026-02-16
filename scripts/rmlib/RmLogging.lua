@@ -46,7 +46,7 @@ function RmLogger:new(name)
     local instance = setmetatable({}, RmLogger)
     instance.name = name
     instance.level = RmLogging.LOG_LEVEL.INFO
-    instance._customPrefix = nil  -- Optional override, nil = use auto-generated
+    instance._customPrefix = nil -- Optional override, nil = use auto-generated
     return instance
 end
 
@@ -56,13 +56,13 @@ function RmLogger:_getContextSuffix()
     -- Check FS25 globals to determine execution context
     -- These are set during mission initialization
     if g_dedicatedServer ~= nil then
-        return "|DS"  -- Dedicated Server
+        return "|DS" -- Dedicated Server
     elseif g_server ~= nil and g_client ~= nil then
-        return "|H"   -- Host (Listen Server)
+        return "|H"  -- Host (Listen Server)
     elseif g_client ~= nil and g_server == nil then
-        return "|C"   -- Client
+        return "|C"  -- Client
     end
-    return ""  -- Context not yet available (during mod loading)
+    return ""        -- Context not yet available (during mod loading)
 end
 
 ---Build the log prefix dynamically

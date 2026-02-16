@@ -224,6 +224,12 @@ function RmVehicleStorageCapacity:onLoad(savegame)
 
                         -- Apply proportional discharge speed
                         RmVehicleStorageCapacity.applyProportionalDischargeSpeed(self, fillUnitIndex, capacity)
+
+                        -- Update FillVolume capacity and recreate 3D fill plane mesh
+                        -- FillVolume:onLoad already ran with original capacity, so fillVolume.capacity
+                        -- and the mesh are stale. Recreate now so fill levels loaded in onPostLoad
+                        -- render with correct proportions. Fill is 0 at this point (loaded later).
+                        RmAdjustStorageCapacity:updateVehicleFillVolumeCapacity(self, fillUnitIndex, capacity)
                     else
                         Log:warning("LOAD_SAVEGAME: %s fillUnit[%d] not found", vehicleName, fillUnitIndex)
                     end

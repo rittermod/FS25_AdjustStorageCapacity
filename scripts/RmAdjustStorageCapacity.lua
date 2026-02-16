@@ -718,6 +718,20 @@ function RmAdjustStorageCapacity:updatePlaceableFillPlanes(placeable)
         end
     end
 
+    -- Update husbandry straw plane (separate visual from storage fillPlanes)
+    -- PlaceableHusbandryStraw has its own strawPlane that only updates on fill level
+    -- changes, not capacity changes — so we must trigger it manually
+    if placeable.updateStrawPlane ~= nil then
+        placeable:updateStrawPlane()
+        Log:trace("Updated husbandry straw plane")
+    end
+
+    -- Update husbandry water plane (same pattern as straw — separate visual)
+    if placeable.updateWaterPlane ~= nil then
+        placeable:updateWaterPlane()
+        Log:trace("Updated husbandry water plane")
+    end
+
     -- Update husbandry food fill planes
     if storageInfo.husbandryFood ~= nil and placeable.updateFillPlanes ~= nil then
         placeable:updateFillPlanes()
@@ -780,11 +794,14 @@ function RmAdjustStorageCapacity:recreateStorageDynamicFillPlane(storage)
         0.05,         -- maxSurfaceDistanceError: precision
         0.9,          -- maxSubDivEdgeLength: mesh subdivision
         1.35,         -- syncMaxSubDivEdgeLength: multiplayer sync subdivision
-        false,        -- allSidePlanes
+        true,         -- allSidePlanes (game default is true)
         false         -- retessellateTop
     )
 
     if newFillPlane ~= nil and newFillPlane ~= 0 then
+        -- Link to parent node (required for scene graph rendering)
+        link(baseNode, newFillPlane)
+
         -- Apply material using game utility (same as Storage.lua does)
         if FillPlaneUtil ~= nil and FillPlaneUtil.assignDefaultMaterialsFromTerrain ~= nil then
             FillPlaneUtil.assignDefaultMaterialsFromTerrain(newFillPlane, g_terrainNode)
@@ -866,11 +883,14 @@ function RmAdjustStorageCapacity:recreateHusbandryFoodDynamicPlane(placeable, sp
         0.05,         -- maxSurfaceDistanceError: precision
         0.9,          -- maxSubDivEdgeLength: mesh subdivision
         1.35,         -- syncMaxSubDivEdgeLength: multiplayer sync subdivision
-        false,        -- allSidePlanes
+        true,         -- allSidePlanes (game default is true)
         false         -- retessellateTop
     )
 
     if newFillPlane ~= nil and newFillPlane ~= 0 then
+        -- Link to parent node (required for scene graph rendering)
+        link(baseNode, newFillPlane)
+
         -- Apply material using game utility (same as PlaceableHusbandryFood.lua does)
         if FillPlaneUtil ~= nil and FillPlaneUtil.assignDefaultMaterialsFromTerrain ~= nil then
             FillPlaneUtil.assignDefaultMaterialsFromTerrain(newFillPlane, g_terrainNode)
@@ -981,8 +1001,9 @@ end
 --- Apply custom capacities to a specific placeable
 ---@param placeable table The storage placeable
 ---@param customCapacity table {fillTypes = {[fillTypeIndex] = capacity}, husbandryFood = capacity, sharedCapacity = capacity}
+---@param skipVisualUpdate boolean|nil If true, skip updating visual fill planes (used during savegame load when fill levels are not yet loaded)
 ---@return boolean success Whether any capacities were applied
-function RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCapacity)
+function RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCapacity, skipVisualUpdate)
     if placeable == nil or customCapacity == nil then
         return false
     end
@@ -1074,7 +1095,11 @@ function RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCap
         end
 
         -- Update visual fill planes to reflect new capacity
-        self:updatePlaceableFillPlanes(placeable)
+        -- Skip during savegame load — fill levels are 0 at this point, so recreating
+        -- 3D fill planes now would show empty. Deferred to loadFromXMLFile instead.
+        if not skipVisualUpdate then
+            self:updatePlaceableFillPlanes(placeable)
+        end
     end
 
     return applied > 0

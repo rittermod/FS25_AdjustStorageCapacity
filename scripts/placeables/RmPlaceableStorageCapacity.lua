@@ -159,11 +159,13 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
             spec.loadedFromSavegame = true
 
             local applySuccess, applyErr = pcall(function()
-                RmAdjustStorageCapacity:applyCapacitiesToPlaceable(self, entry)
+                -- skipVisualUpdate=true: fill levels are 0 at this point, visual update
+                -- is deferred to loadFromXMLFile when fill levels are loaded
+                RmAdjustStorageCapacity:applyCapacitiesToPlaceable(self, entry, true)
             end)
 
             if applySuccess then
-                Log:info("LOAD_SAVEGAME: Applied capacity for %s (BEFORE fill levels load)", placeableName)
+                Log:info("LOAD_SAVEGAME: Applied capacity for %s (BEFORE fill levels load, visual update deferred)", placeableName)
             else
                 Log:error("LOAD_SAVEGAME: Failed to apply capacity to %s: %s", placeableName, tostring(applyErr))
             end
@@ -451,17 +453,22 @@ end
 -- ============================================================================
 
 --- Load custom capacity from placeable's embedded savegame section
---- NOTE: This fires AFTER PlaceableSilo:loadFromXMLFile, so it's TOO LATE for fill level preservation.
---- Capacity loading is now done in onLoad() instead. This is kept for compatibility.
+--- NOTE: Capacity values are applied in onLoad() (BEFORE fill levels load to prevent clamping).
+--- This hook fires AFTER fill levels are loaded, so we use it for the deferred visual fill plane
+--- update — 3D fill planes need correct fill levels to render properly.
 ---@param _xmlFile table XMLFile object (unused - capacity loaded in onLoad)
 ---@param _key string Base key for this placeable (unused - capacity loaded in onLoad)
 function RmPlaceableStorageCapacity:loadFromXMLFile(_xmlFile, _key)
-    -- Capacity is now loaded in onLoad() to ensure correct timing
-    -- This hook fires too late (after fill levels are loaded and capped)
-    -- We keep this registered for compatibility with the savegame system
     local spec = self[RmPlaceableStorageCapacity.SPEC_TABLE_NAME]
     if spec and spec.loadedFromSavegame then
-        Log:debug("LOAD_XML: Skipping %s - already loaded in onLoad", self:getName() or "Unknown")
+        -- Now that fill levels are loaded, update visual fill planes
+        Log:debug("LOAD_XML: Deferred visual fill plane update for %s", self:getName() or "Unknown")
+        local success, err = pcall(function()
+            RmAdjustStorageCapacity:updatePlaceableFillPlanes(self)
+        end)
+        if not success then
+            Log:error("LOAD_XML: Failed to update fill planes for %s: %s", self:getName() or "Unknown", tostring(err))
+        end
     end
 end
 
