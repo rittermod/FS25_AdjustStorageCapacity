@@ -18,7 +18,12 @@
 -- ============================================================================
 
 -- Idempotent initialization (safe to source multiple times)
-RmLogging = RmLogging or {}
+-- FS25 sandbox: _G is modEnv with setmetatable(modEnv, {__index = realGlobal})
+-- Both _G.X= and getfenv(0) write to modEnv. The metatable __index holds the real global.
+local _mt = getmetatable(_G)
+local _realG = _mt and _mt.__index or _G
+_realG.RmLogging = _realG.RmLogging or {}
+RmLogging = _realG.RmLogging
 
 -- Log level constants (preserve if already set)
 RmLogging.LOG_LEVEL = RmLogging.LOG_LEVEL or {
@@ -381,10 +386,10 @@ function RmLogging:consoleSetLogLevel(nameArg, levelArg)
 end
 
 -- ============================================================================
--- Console Command Registration
+-- Console Command Registration (self-contained via mod event listener)
 -- ============================================================================
 
----Register console commands (call this from mission start hook)
+---Register console commands - called automatically via loadMap listener
 ---Safe to call multiple times - will only register once
 function RmLogging.registerConsoleCommands()
     if RmLogging._consoleCommandsRegistered then
@@ -396,7 +401,7 @@ function RmLogging.registerConsoleCommands()
     RmLogging._consoleCommandsRegistered = true
 end
 
----Unregister console commands (call this from mission delete hook)
+---Unregister console commands - called automatically via deleteMap listener
 function RmLogging.unregisterConsoleCommands()
     if not RmLogging._consoleCommandsRegistered then
         return
@@ -405,4 +410,21 @@ function RmLogging.unregisterConsoleCommands()
     removeConsoleCommand("rmShowLoglevel")
     removeConsoleCommand("rmSetLoglevel")
     RmLogging._consoleCommandsRegistered = false
+end
+
+-- ============================================================================
+-- Self-contained Lifecycle Hooks
+-- ============================================================================
+
+function RmLogging.loadMap()
+    RmLogging.registerConsoleCommands()
+end
+
+function RmLogging.deleteMap()
+    RmLogging.unregisterConsoleCommands()
+end
+
+if not RmLogging._listenerRegistered then
+    addModEventListener(RmLogging)
+    RmLogging._listenerRegistered = true
 end

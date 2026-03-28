@@ -280,9 +280,6 @@ end
 function RmAdjustStorageCapacity.onMissionStarted()
     Log:info("Mission started, initializing...")
 
-    -- Register console commands for log level management
-    RmLogging.registerConsoleCommands()
-
     -- Register GUI dialogs
     RmStorageCapacityDialog.register()
     RmVehicleCapacityDialog.register()
@@ -2526,8 +2523,6 @@ function RmAdjustStorageCapacity:deleteMap()
     removeConsoleCommand("ascSetVehicle")
     removeConsoleCommand("ascResetVehicle")
     removeConsoleCommand("ascVehicleMass")
-
-    RmLogging.unregisterConsoleCommands()
 
     -- Clear placeable data
     self.customCapacities = {}
