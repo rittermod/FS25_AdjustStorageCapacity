@@ -131,6 +131,8 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
             local name = xmlFile:getValue(ftKey .. "#name")
             local capacity = xmlFile:getValue(ftKey .. "#capacity")
             if name and capacity then
+                -- Defensive [0, MAX] clamp: heal a pre-fix / hand-edited save (over-max or wrapped-negative).
+                capacity = math.max(0, (RmAdjustStorageCapacity.clampToMax(capacity)))
                 local fillTypeIndex = g_fillTypeManager:getFillTypeIndexByName(name)
                 if fillTypeIndex then
                     entry.fillTypes[fillTypeIndex] = capacity
@@ -144,12 +146,14 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
         -- Read husbandry food capacity
         entry.husbandryFood = xmlFile:getValue(modKey .. ".husbandryFood#capacity")
         if entry.husbandryFood then
+            entry.husbandryFood = math.max(0, (RmAdjustStorageCapacity.clampToMax(entry.husbandryFood)))
             Log:debug("LOAD_SAVEGAME: Read husbandryFood = %d", entry.husbandryFood)
         end
 
         -- Read shared capacity
         entry.sharedCapacity = xmlFile:getValue(modKey .. ".sharedCapacity#value")
         if entry.sharedCapacity then
+            entry.sharedCapacity = math.max(0, (RmAdjustStorageCapacity.clampToMax(entry.sharedCapacity)))
             Log:debug("LOAD_SAVEGAME: Read sharedCapacity = %d", entry.sharedCapacity)
         end
 
@@ -405,19 +409,20 @@ function RmPlaceableStorageCapacity:onReadStream(streamId, connection)
         for i = 1, fillTypeCount do
             local fillTypeIndex = streamReadInt32(streamId)
             local capacity = streamReadInt32(streamId)
-            entry.fillTypes[fillTypeIndex] = capacity
+            -- Defensive [0, MAX] clamp: a pre-fix server could send a wrapped-negative capacity.
+            entry.fillTypes[fillTypeIndex] = math.max(0, (RmAdjustStorageCapacity.clampToMax(capacity)))
         end
 
         -- Read husbandry food capacity
         local hasHusbandryFood = streamReadBool(streamId)
         if hasHusbandryFood then
-            entry.husbandryFood = streamReadInt32(streamId)
+            entry.husbandryFood = math.max(0, (RmAdjustStorageCapacity.clampToMax(streamReadInt32(streamId))))
         end
 
         -- Read shared capacity
         local hasSharedCapacity = streamReadBool(streamId)
         if hasSharedCapacity then
-            entry.sharedCapacity = streamReadInt32(streamId)
+            entry.sharedCapacity = math.max(0, (RmAdjustStorageCapacity.clampToMax(streamReadInt32(streamId))))
         end
 
         -- Count total capacities read

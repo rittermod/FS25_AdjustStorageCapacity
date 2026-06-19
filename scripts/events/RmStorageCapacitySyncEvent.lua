@@ -341,8 +341,8 @@ end
 ---@param placeable table The storage placeable object
 ---@param fillTypeIndex number Fill type index (-1 for HusbandryFood)
 ---@param newCapacity number New capacity value
----@param wasClampedByDialog boolean|nil Optional flag if clamping was done by dialog
-function RmStorageCapacitySyncEvent.sendSetCapacity(placeable, fillTypeIndex, newCapacity, wasClampedByDialog)
+---@param clampReason string|nil "fill" or "max" when the caller already clamped (dialogs); nil to derive (console)
+function RmStorageCapacitySyncEvent.sendSetCapacity(placeable, fillTypeIndex, newCapacity, clampReason)
     if placeable == nil then
         Log:warning("sendSetCapacity: placeable is nil")
         return
@@ -351,18 +351,24 @@ function RmStorageCapacitySyncEvent.sendSetCapacity(placeable, fillTypeIndex, ne
     Log:debug("sendSetCapacity: placeable=%s, fillType=%d, capacity=%d",
         placeable:getName(), fillTypeIndex, newCapacity)
 
-    -- Determine if clamping occurred - either from dialog or check locally (for console commands)
-    local wasClamped = wasClampedByDialog
-    if wasClamped == nil then
-        -- Console command or other caller - check if clamping is needed
+    -- Fill-level clamp: dialogs already clamped and passed clampReason; derive here for console/other callers.
+    if clampReason == nil then
         local minCapacity = RmAdjustStorageCapacity:getMinCapacity(placeable, fillTypeIndex)
         if newCapacity < minCapacity then
             Log:info("Capacity clamped from %d to %d (current fill level)", newCapacity, minCapacity)
             newCapacity = minCapacity
-            wasClamped = true
-        else
-            wasClamped = false
+            clampReason = "fill"
         end
+    end
+
+    -- Max-capacity clamp: authoritative pre-wire guard. Runs UNCONDITIONALLY (independent of the
+    -- dialog clamp) so an out-of-range value never reaches the wire or savegame; no-op when the
+    -- dialog already clamped. max takes precedence over fill for the notification.
+    local maxClamped
+    newCapacity, maxClamped = RmAdjustStorageCapacity.clampToMax(newCapacity)
+    if maxClamped then
+        Log:info("Capacity clamped down to %d (MAX_CAPACITY)", newCapacity)
+        clampReason = "max"
     end
 
     local isMultiplayer = g_currentMission.missionDynamicInfo.isMultiplayer
@@ -388,7 +394,14 @@ function RmStorageCapacitySyncEvent.sendSetCapacity(placeable, fillTypeIndex, ne
                 local fillType = g_fillTypeManager:getFillTypeByIndex(fillTypeIndex)
                 fillTypeName = fillType and fillType.title or "Unknown"
             end
-            local messageKey = wasClamped and "rm_asc_mp_success_clamped" or "rm_asc_mp_success"
+            local messageKey
+            if clampReason == "max" then
+                messageKey = "rm_asc_mp_success_clampedMax"
+            elseif clampReason == "fill" then
+                messageKey = "rm_asc_mp_success_clamped"
+            else
+                messageKey = "rm_asc_mp_success"
+            end
             g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
                 string.format(g_i18n:getText(messageKey), placeable:getName(), fillTypeName, newCapacity))
         else

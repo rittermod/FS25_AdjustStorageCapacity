@@ -21,6 +21,7 @@
         <!-- MP success message -->
         <text name="rm_asc_mp_success" text="Capacity for %s (%s) set to %d"/>
         <text name="rm_asc_mp_success_clamped" text="Capacity for %s (%s) set to %d (current fill level)"/>
+        <text name="rm_asc_mp_success_clampedMax" text="Capacity for %s (%s) set to %d (maximum)"/>
 
         <!-- Special fill type names -->
         <text name="rm_asc_husbandryFood" text="Animal Food (Trough)"/>
@@ -44,6 +45,7 @@
         <text name="rm_asc_vehicle_noFillUnits" text="No fill units found for this vehicle"/>
         <text name="rm_asc_vehicle_capacitySet" text="Capacity for %s set to %d"/>
         <text name="rm_asc_vehicle_capacitySet_clamped" text="Capacity for %s set to %d (current fill level)"/>
+        <text name="rm_asc_vehicle_capacitySet_clampedMax" text="Capacity for %s set to %d (maximum)"/>
 
         <!-- Vehicle picker (in-vehicle K press) -->
         <text name="rm_asc_picker_title" text="Select Vehicle"/>

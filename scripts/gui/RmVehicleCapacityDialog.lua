@@ -305,7 +305,8 @@ function RmVehicleCapacityDialog:applyEditing()
     end
 
     local newValue = tonumber(newValueStr)
-    if newValue == nil or newValue < 0 then
+    if newValue == nil or newValue ~= newValue or newValue == math.huge or newValue == -math.huge
+        or newValue < 0 then
         Log:warning("applyEditing: invalid value '%s'", newValueStr)
         g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
             g_i18n:getText("rm_asc_error_invalidCapacity"))
@@ -315,21 +316,29 @@ function RmVehicleCapacityDialog:applyEditing()
 
     newValue = math.floor(newValue)
 
-    -- Clamp to minimum capacity (current fill level) to prevent data loss
+    -- Clamp UP to current fill level (prevent data loss), then DOWN to MAX_CAPACITY (Int32 ceiling).
+    -- clampReason drives the notification on the SP/server-direct path; max takes precedence over fill.
     local minCapacity = math.floor(self.editingEntry.fillLevel or 0)
-    local wasClamped = false
+    local clampReason = nil
     if newValue < minCapacity then
         Log:info("Capacity clamped from %d to %d (current fill level)", newValue, minCapacity)
         newValue = minCapacity
-        wasClamped = true
+        clampReason = "fill"
+    end
+
+    local maxClamped
+    newValue, maxClamped = RmAdjustStorageCapacity.clampToMax(newValue)
+    if maxClamped then
+        Log:info("Capacity clamped down to %d (MAX_CAPACITY)", newValue)
+        clampReason = "max"
     end
 
     Log:debug("applyEditing: fillUnit=%d, oldValue=%d, newValue=%d%s",
         self.editingEntry.fillUnitIndex, self.editingOriginalValue or 0, newValue,
-        wasClamped and " (clamped)" or "")
+        clampReason and (" (" .. clampReason .. ")") or "")
 
-    -- Send the capacity change via network event (pass wasClamped so notification shows correctly)
-    RmVehicleCapacitySyncEvent.sendSetCapacity(self.vehicle, self.editingEntry.fillUnitIndex, newValue, wasClamped)
+    -- Send the capacity change via network event (pass clampReason so the notification matches)
+    RmVehicleCapacitySyncEvent.sendSetCapacity(self.vehicle, self.editingEntry.fillUnitIndex, newValue, clampReason)
 
     local editedIndex = self.editingIndex
 

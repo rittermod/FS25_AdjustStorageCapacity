@@ -197,6 +197,8 @@ function RmVehicleStorageCapacity:onLoad(savegame)
                 local index = xmlFile:getValue(fuKey .. "#index")
                 local capacity = xmlFile:getValue(fuKey .. "#capacity")
                 if index and capacity then
+                    -- Defensive [0, MAX] clamp: heal a pre-fix / hand-edited save (over-max or wrapped-negative).
+                    capacity = math.max(0, (RmAdjustStorageCapacity.clampToMax(capacity)))
                     entry[index] = capacity
                     Log:debug("LOAD_SAVEGAME: Read fillUnit %d = %d", index, capacity)
                 end
@@ -333,7 +335,8 @@ function RmVehicleStorageCapacity:onReadStream(streamId, connection)
         for _ = 1, count do
             local fillUnitIndex = streamReadInt32(streamId)
             local capacity = streamReadInt32(streamId)
-            entry[fillUnitIndex] = capacity
+            -- Defensive [0, MAX] clamp: a pre-fix server could send a wrapped-negative capacity.
+            entry[fillUnitIndex] = math.max(0, (RmAdjustStorageCapacity.clampToMax(capacity)))
         end
 
         if uniqueId ~= nil then

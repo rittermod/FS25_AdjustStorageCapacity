@@ -320,8 +320,8 @@ end
 ---@param vehicle table The vehicle object
 ---@param fillUnitIndex number Fill unit index (1-based)
 ---@param newCapacity number New capacity value
----@param wasClampedByDialog boolean|nil Optional flag if clamping was done by dialog
-function RmVehicleCapacitySyncEvent.sendSetCapacity(vehicle, fillUnitIndex, newCapacity, wasClampedByDialog)
+---@param clampReason string|nil "fill" or "max" when the caller already clamped (dialogs); nil to derive (console)
+function RmVehicleCapacitySyncEvent.sendSetCapacity(vehicle, fillUnitIndex, newCapacity, clampReason)
     if vehicle == nil then
         Log:warning("sendSetCapacity: vehicle is nil")
         return
@@ -330,18 +330,24 @@ function RmVehicleCapacitySyncEvent.sendSetCapacity(vehicle, fillUnitIndex, newC
     Log:debug("sendSetCapacity: vehicle=%s, fillUnit=%d, capacity=%d",
         vehicle:getName(), fillUnitIndex, newCapacity)
 
-    -- Determine if clamping occurred - either from dialog or check locally (for console commands)
-    local wasClamped = wasClampedByDialog
-    if wasClamped == nil then
-        -- Console command or other caller - check if clamping is needed
+    -- Fill-level clamp: dialogs already clamped and passed clampReason; derive here for console/other callers.
+    if clampReason == nil then
         local minCapacity = RmAdjustStorageCapacity:getMinVehicleCapacity(vehicle, fillUnitIndex)
         if newCapacity < minCapacity then
             Log:info("Capacity clamped from %d to %d (current fill level)", newCapacity, minCapacity)
             newCapacity = minCapacity
-            wasClamped = true
-        else
-            wasClamped = false
+            clampReason = "fill"
         end
+    end
+
+    -- Max-capacity clamp: authoritative pre-wire guard. Runs UNCONDITIONALLY (independent of the
+    -- dialog clamp) so an out-of-range value never reaches the wire or savegame; no-op when the
+    -- dialog already clamped. max takes precedence over fill for the notification.
+    local maxClamped
+    newCapacity, maxClamped = RmAdjustStorageCapacity.clampToMax(newCapacity)
+    if maxClamped then
+        Log:info("Capacity clamped down to %d (MAX_CAPACITY)", newCapacity)
+        clampReason = "max"
     end
 
     local isMultiplayer = g_currentMission.missionDynamicInfo.isMultiplayer
@@ -360,7 +366,14 @@ function RmVehicleCapacitySyncEvent.sendSetCapacity(vehicle, fillUnitIndex, newC
                     RmVehicleCapacitySyncEvent.RESULT_OK, vehicle, fillUnitIndex, newCapacity))
             end
 
-            local messageKey = wasClamped and "rm_asc_vehicle_capacitySet_clamped" or "rm_asc_vehicle_capacitySet"
+            local messageKey
+            if clampReason == "max" then
+                messageKey = "rm_asc_vehicle_capacitySet_clampedMax"
+            elseif clampReason == "fill" then
+                messageKey = "rm_asc_vehicle_capacitySet_clamped"
+            else
+                messageKey = "rm_asc_vehicle_capacitySet"
+            end
             g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
                 string.format(g_i18n:getText(messageKey), vehicle:getName(), newCapacity))
         else

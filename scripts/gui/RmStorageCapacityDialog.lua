@@ -454,7 +454,8 @@ function RmStorageCapacityDialog:applyEditing()
     end
 
     local newValue = tonumber(newValueStr)
-    if newValue == nil or newValue < 0 then
+    if newValue == nil or newValue ~= newValue or newValue == math.huge or newValue == -math.huge
+        or newValue < 0 then
         Log:warning("applyEditing: invalid value '%s'", newValueStr)
         g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_CRITICAL,
             g_i18n:getText("rm_asc_error_invalidCapacity"))
@@ -466,18 +467,26 @@ function RmStorageCapacityDialog:applyEditing()
     -- Round to integer
     newValue = math.floor(newValue)
 
-    -- Clamp to minimum capacity (current fill level) to prevent data loss
+    -- Clamp UP to current fill level (prevent data loss), then DOWN to MAX_CAPACITY (Int32 ceiling).
+    -- clampReason drives the notification on the SP/server-direct path; max takes precedence over fill.
     local minCapacity = math.floor(self.editingEntry.fillLevel or 0)
-    local wasClamped = false
+    local clampReason = nil
     if newValue < minCapacity then
         Log:info("Capacity clamped from %d to %d (current fill level)", newValue, minCapacity)
         newValue = minCapacity
-        wasClamped = true
+        clampReason = "fill"
+    end
+
+    local maxClamped
+    newValue, maxClamped = RmAdjustStorageCapacity.clampToMax(newValue)
+    if maxClamped then
+        Log:info("Capacity clamped down to %d (MAX_CAPACITY)", newValue)
+        clampReason = "max"
     end
 
     Log:debug("applyEditing: fillType=%s, oldValue=%d, newValue=%d%s",
         self.editingEntry.fillTypeName or "?", self.editingOriginalValue or 0, newValue,
-        wasClamped and " (clamped)" or "")
+        clampReason and (" (" .. clampReason .. ")") or "")
 
     -- Determine the fill type index to use
     local fillTypeIndex
@@ -488,8 +497,8 @@ function RmStorageCapacityDialog:applyEditing()
         fillTypeIndex = self.editingEntry.fillTypeIndex
     end
 
-    -- Send the capacity change via network event (pass wasClamped so notification shows correctly)
-    RmStorageCapacitySyncEvent.sendSetCapacity(self.placeable, fillTypeIndex, newValue, wasClamped)
+    -- Send the capacity change via network event (pass clampReason so the notification matches)
+    RmStorageCapacitySyncEvent.sendSetCapacity(self.placeable, fillTypeIndex, newValue, clampReason)
 
     -- Save index before clearing state
     local editedIndex = self.editingIndex

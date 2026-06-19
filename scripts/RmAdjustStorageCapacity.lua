@@ -5,7 +5,8 @@
 -- Supports: PlaceableSilo, PlaceableProductionPoint, PlaceableHusbandry, PlaceableHusbandryFood
 -- NOT Supported: BunkerSilo (terrain heap-based, no capacity property)
 --
--- Unlike LimitHusbandryAnimals, this mod allows setting ANY capacity value (no upper limit).
+-- Unlike LimitHusbandryAnimals, this mod allows very large capacities; the only ceiling is the
+-- Int32 limit the network wire and savegame impose (see RmAdjustStorageCapacity.MAX_CAPACITY).
 
 RmAdjustStorageCapacity = {}
 RmAdjustStorageCapacity.modDirectory = g_currentModDirectory
@@ -37,6 +38,13 @@ RmAdjustStorageCapacity.autoScaleMass = true
 -- Key = uniqueId, Value = {[fillUnitIndex] = capacity}
 RmAdjustStorageCapacity.vehicleCapacities = {}
 
+-- Maximum capacity any stored value may hold. This is the signed-Int32 ceiling the network
+-- wire (streamWriteInt32) and the savegame (XMLValueType.INT) already impose; a larger value
+-- cannot be represented and would wrap to a negative or small-positive value over the wire.
+-- Single source of truth: every enforcement site references this constant, and ASC-28's
+-- husbandryFood bit width is MathUtil.getNumRequiredBits(MAX_CAPACITY) == 31.
+RmAdjustStorageCapacity.MAX_CAPACITY = 2147483647
+
 -- Note: Placeable keybinds now use the activatableObjectsSystem via RmPlaceableCapacityActivatable.
 -- Vehicle keybinds also use the activatableObjectsSystem via RmVehicleCapacityActivatable.
 
@@ -52,6 +60,23 @@ local CONSOLE_ERRORS = {
 
 -- Get logger for this module (prefix auto-generated with context suffix)
 local Log = RmLogging.getLogger("AdjustStorageCapacity")
+
+-- ============================================================================
+-- Capacity bounds
+-- ============================================================================
+
+--- Clamp a capacity DOWN to MAX_CAPACITY (the Int32 ceiling the wire + savegame impose).
+--- Pure and engine-free; the caller must pass an already-validated finite integer (>= 0),
+--- so this only enforces the upper bound. Over-max input is reduced, never rejected.
+---@param value number A validated finite integer capacity
+---@return number clamped The value, reduced to MAX_CAPACITY when it exceeded it
+---@return boolean wasMax True when the value was clamped down to MAX_CAPACITY
+function RmAdjustStorageCapacity.clampToMax(value)
+    if value > RmAdjustStorageCapacity.MAX_CAPACITY then
+        return RmAdjustStorageCapacity.MAX_CAPACITY, true
+    end
+    return value, false
+end
 
 -- ============================================================================
 -- Storage Enumeration and Type Detection
@@ -1353,9 +1378,17 @@ function RmAdjustStorageCapacity:setCapacity(placeable, fillTypeIndex, newCapaci
         return false, "Storage not found"
     end
 
+    -- Reject non-finite (NaN / +/-inf) so a direct/scripted caller cannot store a garbage capacity.
+    if newCapacity ~= newCapacity or newCapacity == math.huge or newCapacity == -math.huge then
+        return false, "Capacity must be a finite number"
+    end
+
     if newCapacity < 0 then
         return false, "Capacity must be positive"
     end
+
+    -- Clamp (not reject) over-max so direct callers heal instead of getting an opaque ERROR_UNKNOWN.
+    newCapacity = RmAdjustStorageCapacity.clampToMax(newCapacity)
 
     local uniqueId = placeable.uniqueId
     if uniqueId == nil then
@@ -1583,9 +1616,17 @@ function RmAdjustStorageCapacity:setVehicleCapacity(vehicle, fillUnitIndex, newC
         return false, "Vehicle not found"
     end
 
+    -- Reject non-finite (NaN / +/-inf) so a direct/scripted caller cannot store a garbage capacity.
+    if newCapacity ~= newCapacity or newCapacity == math.huge or newCapacity == -math.huge then
+        return false, "Capacity must be a finite number"
+    end
+
     if newCapacity < 0 then
         return false, "Capacity must be positive"
     end
+
+    -- Clamp (not reject) over-max so direct callers heal instead of getting an opaque ERROR_UNKNOWN.
+    newCapacity = RmAdjustStorageCapacity.clampToMax(newCapacity)
 
     local uniqueId = vehicle.uniqueId
     if uniqueId == nil then
@@ -2129,6 +2170,15 @@ function RmAdjustStorageCapacity:consoleCommandSet(indexStr, fillTypeStr, capaci
         return "Invalid arguments. Index and capacity must be numbers."
     end
 
+    -- Validate: reject non-finite (NaN / +/-inf), floor, reject negative; sendSetCapacity clamps fill + max.
+    if capacity ~= capacity or capacity == math.huge or capacity == -math.huge then
+        return CONSOLE_ERRORS.rm_asc_error_invalidCapacity
+    end
+    capacity = math.floor(capacity)
+    if capacity < 0 then
+        return CONSOLE_ERRORS.rm_asc_error_invalidCapacity
+    end
+
     -- fillType can be a number OR a name string
     local fillTypeIndex = tonumber(fillTypeStr)
     if fillTypeIndex == nil then
@@ -2319,6 +2369,15 @@ function RmAdjustStorageCapacity:consoleCommandSetVehicle(indexStr, fillUnitStr,
 
     if index == nil or fillUnitIndex == nil or capacity == nil then
         return "Invalid arguments. All values must be numbers."
+    end
+
+    -- Validate: reject non-finite (NaN / +/-inf), floor, reject negative; sendSetCapacity clamps fill + max.
+    if capacity ~= capacity or capacity == math.huge or capacity == -math.huge then
+        return CONSOLE_ERRORS.rm_asc_error_invalidCapacity
+    end
+    capacity = math.floor(capacity)
+    if capacity < 0 then
+        return CONSOLE_ERRORS.rm_asc_error_invalidCapacity
     end
 
     local vehicles = self:getAllVehiclesWithFillUnits()
