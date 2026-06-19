@@ -52,7 +52,6 @@ local CONSOLE_ERRORS = {
 
 -- Get logger for this module (prefix auto-generated with context suffix)
 local Log = RmLogging.getLogger("AdjustStorageCapacity")
-Log:setLevel(RmLogging.LOG_LEVEL.INFO)
 
 -- ============================================================================
 -- Storage Enumeration and Type Detection

@@ -10,6 +10,10 @@ local modDirectory = g_currentModDirectory
 -- Load dependencies in order
 -- NOTE: Specialization files are sourced by addSpecialization() - don't source them manually
 source(modDirectory .. "scripts/rmlib/RmLogging.lua")
+-- Get logger for this module
+local Log = RmLogging.getLogger("AdjustStorageCapacity")
+Log:setLevel(RmLogging.LOG_LEVEL.DEBUG)
+
 source(modDirectory .. "scripts/RmAdjustStorageCapacity.lua")
 source(modDirectory .. "scripts/events/RmStorageCapacitySyncEvent.lua")
 source(modDirectory .. "scripts/events/RmVehicleCapacitySyncEvent.lua")
@@ -23,8 +27,13 @@ source(modDirectory .. "scripts/vehicles/RmVehicleCapacityActivatable.lua")
 source(modDirectory .. "scripts/vehicles/RmVehicleDetectionHandler.lua")
 source(modDirectory .. "scripts/placeables/RmPlaceableCapacityActivatable.lua")
 
--- Get logger for this module
-local Log = RmLogging.getLogger("AdjustStorageCapacity")
+-- Testing (conditional): tests/ is symlinked in as scripts/tests in dev checkouts
+-- and stripped from release builds, so guard the source with fileExists.
+local testRunnerPath = modDirectory .. "scripts/tests/RmTestRunner.lua"
+if fileExists(testRunnerPath) then
+    source(testRunnerPath)
+end
+
 
 --- Validate and inject specialization into storage placeable types
 local function validatePlaceableTypes(typeManager)
