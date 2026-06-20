@@ -1896,8 +1896,9 @@ function RmAdjustStorageCapacity:applyVehicleCapacity(vehicle, fillUnitIndex, ca
         return
     end
 
-    -- Excluded fill units are owned/re-derived by a base spec (leveler / baler chamber+buffer /
-    -- consumable slots / strawblower buffer). NO-OP here so ASC never fights the owning spec on ANY
+    -- Excluded fill units are owned/re-derived by a base spec (leveler / baler chamber + re-derived
+    -- buffer / bale-loader platform / consumable slots / strawblower). NO-OP here so ASC never fights
+    -- the owning spec on ANY
     -- path (set / reset / applyVehicleCapacities / MP onReadStream); a console poke at an excluded
     -- index is therefore an inert, self-cleaning no-op rather than a rejected request.
     local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
@@ -2310,8 +2311,9 @@ function RmAdjustStorageCapacity:consoleCommandListVehicles()
         -- Show fill units
         local fillUnitSpec = vehicle.spec_fillUnit
         if fillUnitSpec ~= nil and fillUnitSpec.fillUnits ~= nil then
-            -- Build the excluded set via the shared SSOT (leveler / baler chamber+buffer /
-            -- consumable slots / strawblower buffer) so the console list matches the offer list.
+            -- Build the excluded set via the shared SSOT (leveler / baler chamber + re-derived buffer
+            -- / bale-loader platform / consumable slots / strawblower) so the console list matches the
+            -- offer list.
             local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
 
             for j, fillUnit in ipairs(fillUnitSpec.fillUnits) do

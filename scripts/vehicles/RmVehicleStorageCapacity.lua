@@ -58,7 +58,7 @@ function RmVehicleStorageCapacity.isVehicleSupported(vehicle)
     end
 
     -- Drop a vehicle whose EVERY fill unit is owned/re-derived by another spec (a pure
-    -- baler/consumable/strawblower/leveler): nothing is left for ASC to adjust, so the K prompt,
+    -- baler/baleLoader/consumable/strawblower/leveler): nothing is left for ASC to adjust, so the K prompt,
     -- picker, menu, and console list all skip it. Runs last - after no_fill_units guarantees
     -- #fillUnits > 0 - so a zero-fill-unit vehicle is never labelled "no_adjustable_fill_units".
     local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
@@ -76,12 +76,13 @@ function RmVehicleStorageCapacity.isVehicleSupported(vehicle)
 end
 
 --- Build the set of fill-unit indices that ASC must NOT adjust because a base specialization
---- OWNS or RE-DERIVES their capacity: leveler buffers, the baler bale chamber (+ optional overload
---- buffer), consumable slot-count units, and the strawblower blow buffer. Baler ADDITIVES are NOT
---- excluded - a static side tank that is never re-derived, so it stays genuine adjustable storage.
---- This is the single SSOT consulted at the offer list, support detection, and the apply/persist
---- chokepoints. Every spec table and field is nil-guarded; an index claimed by two specs is
---- idempotent (set semantics - any excluding spec wins).
+--- OWNS or RE-DERIVES their capacity: leveler buffers, the baler bale chamber (+ the overload
+--- buffer only when the game re-derives it from capacityPercentage), bale-loader platform units
+--- (capacity is a bale COUNT, not liters), consumable slot-count units, and the strawblower blow
+--- buffer. Baler ADDITIVES and a fixed-capacity baler buffer (no capacityPercentage) are NOT
+--- excluded - they are genuine adjustable storage. This is the single SSOT consulted at the offer
+--- list, support detection, and the apply/persist chokepoints. Every spec table and field is
+--- nil-guarded; an index claimed by two specs is idempotent (set semantics - any excluding spec wins).
 ---@param vehicle table The vehicle to classify
 ---@return table excluded A set { [fillUnitIndex] = true } of indices ASC must leave alone
 function RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
@@ -106,15 +107,37 @@ function RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
         end
     end
 
-    -- Baler: the bale chamber (the game sizes it from the bale being formed, not a user value) and
-    -- the OPTIONAL overload buffer. NOT the additives tank, which stays adjustable.
+    -- Baler: the bale chamber (the game always re-derives it from the bale being formed) and the
+    -- overload buffer ONLY when the game re-derives it. Per the buffer's XML schema, a buffer with
+    -- capacityPercentage set is re-sized to that share of the bale capacity; with none it keeps its
+    -- fixed XML capacity (a stationary material bunker, e.g. VARIO-Master V140 [2] = 20000 L) and
+    -- stays genuine adjustable storage. NOT the additives tank, which stays adjustable.
     local balerSpec = vehicle.spec_baler
     if balerSpec ~= nil then
         if balerSpec.fillUnitIndex ~= nil then
             excluded[balerSpec.fillUnitIndex] = true
         end
-        if balerSpec.buffer ~= nil and balerSpec.buffer.fillUnitIndex ~= nil then
+        if balerSpec.buffer ~= nil and balerSpec.buffer.fillUnitIndex ~= nil
+            and balerSpec.buffer.capacityPercentage ~= nil then
             excluded[balerSpec.buffer.fillUnitIndex] = true
+        end
+    end
+
+    -- BaleLoader: the platform fill unit holds formed bales (capacity is a bale COUNT, not liters);
+    -- the loader OWNS it (only reads capacity, never re-derives) and drives visual bale slots that must
+    -- match the count. Each per-bale-type unit may target its own fill unit. Applies to self-loading
+    -- balers AND dedicated bale-autoload trailers.
+    local baleLoaderSpec = vehicle.spec_baleLoader
+    if baleLoaderSpec ~= nil then
+        if baleLoaderSpec.fillUnitIndex ~= nil then
+            excluded[baleLoaderSpec.fillUnitIndex] = true
+        end
+        if baleLoaderSpec.baleTypes ~= nil then
+            for _, baleType in pairs(baleLoaderSpec.baleTypes) do
+                if baleType.fillUnitIndex ~= nil then
+                    excluded[baleType.fillUnitIndex] = true
+                end
+            end
         end
     end
 
@@ -545,9 +568,9 @@ function RmVehicleStorageCapacity:getAllFillUnitInfo()
         return result
     end
 
-    -- Build the set of fill units ASC must not offer (leveler / baler chamber+buffer / consumable
-    -- slots / strawblower buffer) via the shared SSOT. self IS the vehicle here (called dot-style
-    -- with an explicit vehicle, e.g. from RmVehiclePickerDialog).
+    -- Build the set of fill units ASC must not offer (leveler / baler chamber + re-derived buffer /
+    -- bale-loader platform / consumable slots / strawblower) via the shared SSOT. self IS the vehicle
+    -- here (called dot-style with an explicit vehicle, e.g. from RmVehiclePickerDialog).
     local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(self)
 
     for i, fillUnit in ipairs(fillUnitSpec.fillUnits) do
