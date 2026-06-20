@@ -255,8 +255,28 @@ function RmVehicleStorageCapacity:onPostLoad(_savegame)
         return
     end
 
-    -- Log current state for debugging
     if g_server ~= nil then
+        -- Load-time excess-fill heal: fill levels are already loaded by the time this runs, so
+        -- clamp any fill that loaded ABOVE the (already onLoad-bounded) fill-unit capacity DOWN to
+        -- capacity. Loaded fill is already within cap for healthy entities EXCEPT a cap-0 unit: a
+        -- fill unit with capacity 0 is treated as unbounded and loads its stored fill without
+        -- clamping, so it can finish loading overfilled (corrupt capacity healed to 0, or a user-set
+        -- 0 then filled while it was treated as unbounded). The heal empties that unit so the vehicle
+        -- dialog lower bound is no longer stuck above 0. No-op for healthy (cap>0) units.
+        local rmSpec = self[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
+        if rmSpec ~= nil and rmSpec.loadedFromSavegame then
+            -- Contain a heal throw so it cannot abort the rest of onPostLoad / the load chain
+            -- (symmetric with the placeable hook's per-storage pcall).
+            local healOk, healErr = pcall(function()
+                RmAdjustStorageCapacity:clampExcessVehicleFill(self)
+            end)
+            if not healOk then
+                Log:error("onPostLoad: Failed to heal excess fill for %s: %s",
+                    vehicleName, tostring(healErr))
+            end
+        end
+
+        -- Log current state for debugging
         local uniqueId = self.uniqueId
         local entry = RmAdjustStorageCapacity.vehicleCapacities[uniqueId]
 

@@ -539,7 +539,24 @@ end
 function RmPlaceableStorageCapacity:loadFromXMLFile(_xmlFile, _key)
     local spec = self[RmPlaceableStorageCapacity.SPEC_TABLE_NAME]
     if spec and spec.loadedFromSavegame then
-        -- Now that fill levels are loaded, update visual fill planes
+        -- Load-time excess-fill heal: clamp any runtime FILL that loaded ABOVE the (already
+        -- onLoad-bounded) storage capacity DOWN to capacity. Loaded fill is already within cap for
+        -- healthy entities, so this is a guaranteed no-op except on a hand-edited SHARED-capacity
+        -- silo: each fill type loads within its own cap, but their sum can still exceed the single
+        -- shared capacity. Each storage is healed under its OWN pcall - and the plane refresh in a
+        -- SEPARATE pcall below - so one storage's throw cannot skip its siblings OR the refresh.
+        local storageInfo = RmAdjustStorageCapacity:getStorageInfo(self)
+        for _, info in ipairs(storageInfo.storages) do
+            local healOk, healErr = pcall(function()
+                RmAdjustStorageCapacity:clampExcessFill(info.storage)
+            end)
+            if not healOk then
+                Log:error("LOAD_XML: Failed to heal excess fill for %s: %s",
+                    self:getName() or "Unknown", tostring(healErr))
+            end
+        end
+
+        -- Now that fill levels are loaded (and healed), update visual fill planes
         Log:debug("LOAD_XML: Deferred visual fill plane update for %s", self:getName() or "Unknown")
         local success, err = pcall(function()
             RmAdjustStorageCapacity:updatePlaceableFillPlanes(self)
