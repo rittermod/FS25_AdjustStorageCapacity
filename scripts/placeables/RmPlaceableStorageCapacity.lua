@@ -363,6 +363,32 @@ function RmPlaceableStorageCapacity:onWriteStream(streamId, connection)
             streamWriteInt32(streamId, customCapacity.sharedCapacity)
         end
 
+        -- Carry the server's TRUE fill for each Storage so a joining client can re-establish it
+        -- AFTER ASC raises the capacity. Base Storage deserializes + clamps fill to the ORIGINAL
+        -- capacity before ASC's spec runs, so the above-original portion is lost without this.
+        -- Count-framed and decoded POSITIONALLY: getStorageInfo().storages is built in identical
+        -- order on both peers (FS25 requires identical mods/map), so the i-th written storage is
+        -- the i-th storage on the client. husbandryFood is a SEPARATE getStorageInfo field
+        -- (deferred Part B) and is therefore structurally excluded here.
+        local storages = RmAdjustStorageCapacity:getStorageInfo(self).storages
+        streamWriteInt32(streamId, #storages)
+        for _, info in ipairs(storages) do
+            local fillList = {}
+            local fillLevels = info.storage.fillLevels
+            if fillLevels ~= nil then
+                for fillTypeIndex, fillLevel in pairs(fillLevels) do
+                    if fillLevel > 0 then
+                        fillList[#fillList + 1] = { fillTypeIndex, fillLevel }
+                    end
+                end
+            end
+            streamWriteInt32(streamId, #fillList)
+            for _, p in ipairs(fillList) do
+                streamWriteInt32(streamId, p[1])
+                streamWriteFloat32(streamId, p[2])
+            end
+        end
+
         -- Count total capacities sent
         local totalCount = fillTypeCount
         if customCapacity.husbandryFood ~= nil then totalCount = totalCount + 1 end
@@ -425,6 +451,22 @@ function RmPlaceableStorageCapacity:onReadStream(streamId, connection)
             entry.sharedCapacity = math.max(0, (RmAdjustStorageCapacity.clampToMax(streamReadInt32(streamId))))
         end
 
+        -- Read the carried Storage fill segment UNCONDITIONALLY (outside the uniqueId/pcall apply
+        -- block) so the cursor stays aligned even when uniqueId is nil or the apply throws. The
+        -- whole segment is consumed by count regardless of the client's local storage set;
+        -- carried[i] = { [fillTypeIndex] = fillLevel }. Only the RE-APPLY below is gated.
+        local carried = {}
+        local storageCount = streamReadInt32(streamId)
+        for i = 1, storageCount do
+            local fills = {}
+            local pairCount = streamReadInt32(streamId)
+            for _ = 1, pairCount do
+                local fillTypeIndex = streamReadInt32(streamId)
+                fills[fillTypeIndex] = streamReadFloat32(streamId)
+            end
+            carried[i] = fills
+        end
+
         -- Count total capacities read
         local totalCount = fillTypeCount
         if entry.husbandryFood ~= nil then totalCount = totalCount + 1 end
@@ -439,6 +481,31 @@ function RmPlaceableStorageCapacity:onReadStream(streamId, connection)
             end)
 
             if applySuccess then
+                -- Re-establish each carried Storage fill AFTER the capacity raise. setFillLevel
+                -- clamps to the now-raised capacity, no-ops on an absent slot, and does NOT
+                -- re-broadcast on a client (its dirty-flag raise is isServer-gated). Apply the
+                -- i-th carried storage to the i-th local storage (positional parity); skip and
+                -- debug-log a fill-type slot the client storage lacks.
+                for i, info in ipairs(RmAdjustStorageCapacity:getStorageInfo(self).storages) do
+                    local fills = carried[i]
+                    if fills ~= nil then
+                        local storage = info.storage
+                        for fillTypeIndex, fillLevel in pairs(fills) do
+                            if fillLevel > 0 then
+                                if storage.fillLevels ~= nil and storage.fillLevels[fillTypeIndex] ~= nil then
+                                    storage:setFillLevel(fillLevel, fillTypeIndex)
+                                else
+                                    Log:debug(
+                                        "ReadStream: Carried fill for absent slot skipped on %s (storage %d, fillType %d)",
+                                        placeableName, i, fillTypeIndex)
+                                end
+                            end
+                        end
+                    end
+                end
+                -- Belt-and-suspenders plane refresh for a freshly stream-created placeable.
+                RmAdjustStorageCapacity:updatePlaceableFillPlanes(self)
+
                 Log:debug("ReadStream: Applied %d custom capacities for %s", totalCount, placeableName)
             else
                 Log:error("ReadStream: Failed to apply capacities to %s: %s", placeableName, tostring(applyErr))

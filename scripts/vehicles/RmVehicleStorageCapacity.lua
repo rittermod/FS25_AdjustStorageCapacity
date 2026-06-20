@@ -310,10 +310,23 @@ function RmVehicleStorageCapacity:onWriteStream(streamId, connection)
         end
         streamWriteInt32(streamId, count)
 
-        -- Write each fill unit's custom capacity
+        -- Write each fill unit's custom capacity PLUS the server's TRUE fill level, so a
+        -- joining client can re-establish it AFTER ASC raises the capacity. Base
+        -- FillUnit:onReadStream deserializes + clamps fill to the ORIGINAL capacity before
+        -- ASC's spec runs, discarding everything above it; carrying the truth here lets the
+        -- client top the unit back up once the capacity is raised. One float per customCaps
+        -- entry (count unchanged); value is fu.fillLevel for an existing synchronized unit,
+        -- else 0 (a 0 is never re-applied on read, so it cannot erase a real client fill).
+        local fillUnits = self.spec_fillUnit and self.spec_fillUnit.fillUnits
         for fillUnitIndex, capacity in pairs(customCaps) do
             streamWriteInt32(streamId, fillUnitIndex)
             streamWriteInt32(streamId, capacity)
+            local fillLevel = 0
+            local fu = fillUnits and fillUnits[fillUnitIndex]
+            if fu ~= nil and fu.synchronizeFillLevel then
+                fillLevel = fu.fillLevel or 0
+            end
+            streamWriteFloat32(streamId, fillLevel)
         end
 
         Log:debug("WriteStream: Sent %d custom capacities for %s", count, self:getName())
@@ -329,21 +342,45 @@ function RmVehicleStorageCapacity:onReadStream(streamId, connection)
     -- Read whether we have custom capacities
     if streamReadBool(streamId) then
         local entry = {}
+        local fills = {} -- transient carried fills keyed by fillUnitIndex; never persisted
         local count = streamReadInt32(streamId)
 
-        -- Read each fill unit's custom capacity
+        -- Read each fill unit's custom capacity AND the carried server fill level. Decode is
+        -- UNCONDITIONAL (before the uniqueId gate) so the cursor stays aligned for every later
+        -- object even when uniqueId is nil; only the re-apply below is gated.
         for _ = 1, count do
             local fillUnitIndex = streamReadInt32(streamId)
             local capacity = streamReadInt32(streamId)
+            local fillLevel = streamReadFloat32(streamId)
             -- Defensive [0, MAX] clamp: a pre-fix server could send a wrapped-negative capacity.
             entry[fillUnitIndex] = math.max(0, (RmAdjustStorageCapacity.clampToMax(capacity)))
+            fills[fillUnitIndex] = fillLevel
         end
 
         if uniqueId ~= nil then
             RmAdjustStorageCapacity.vehicleCapacities[uniqueId] = entry
 
-            -- Apply the custom capacities
+            -- Apply the custom capacities (raises capacity)
             RmAdjustStorageCapacity:applyVehicleCapacities(self)
+
+            -- Re-establish the server's TRUE fill on each raised unit, AFTER the capacity raise.
+            -- Base FillUnit:onReadStream already deserialized + clamped fill to the ORIGINAL
+            -- capacity; the delta tops the unit up via the engine's own path, which runs full
+            -- client bookkeeping (mass, listeners, fill plane), clamps to the raised capacity,
+            -- and does NOT re-broadcast on a client (the dirty-flag raise is isServer-gated).
+            -- Skip phantom (no client unit), zero, and non-synchronized units (base did not
+            -- sync those, so their fillType/fillLevel are not authoritative here).
+            local fillUnits = self.spec_fillUnit and self.spec_fillUnit.fillUnits
+            for fillUnitIndex, fillLevel in pairs(fills) do
+                local fu = fillUnits and fillUnits[fillUnitIndex]
+                if fu ~= nil and fillLevel > 0 and fu.synchronizeFillLevel then
+                    local delta = fillLevel - fu.fillLevel
+                    self:addFillUnitFillLevel(self:getOwnerFarmId(), fillUnitIndex, delta,
+                        fu.fillType, ToolType.UNDEFINED, nil)
+                    Log:debug("ReadStream: Re-applied carried fill %.0f to %s fillUnit[%d] (delta %.0f)",
+                        fillLevel, self:getName(), fillUnitIndex, delta)
+                end
+            end
 
             Log:debug("ReadStream: Applied %d custom capacities for %s", count, self:getName())
         else
