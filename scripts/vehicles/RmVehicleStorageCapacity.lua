@@ -75,14 +75,65 @@ function RmVehicleStorageCapacity.isVehicleSupported(vehicle)
     return true, nil
 end
 
+-- The base-game formed-bale fill-type NAMES (the ROUNDBALE* / SQUAREBALE* family). A fill unit whose
+-- EVERY supported fill type is one of these holds a bale COUNT, never liters. Names are stable; the
+-- indices they resolve to are session-assigned at map load, so resolve lazily (never at file-source
+-- time). Re-sweep this list if a DLC introduces a new formed-bale fill type.
+RmVehicleStorageCapacity.FORMED_BALE_FILL_TYPE_NAMES = {
+    "ROUNDBALE", "ROUNDBALE_GRASS", "ROUNDBALE_DRYGRASS", "ROUNDBALE_COTTON", "ROUNDBALE_WOOD",
+    "SQUAREBALE", "SQUAREBALE_GRASS", "SQUAREBALE_DRYGRASS", "SQUAREBALE_COTTON", "SQUAREBALE_WOOD",
+}
+
+--- Resolve the formed-bale fill-type NAMES to a set of fill-type indices, ONCE g_fillTypeManager is
+--- ready, and cache it then (indices are stable per session). If the manager is absent, return an
+--- UN-cached {} so the rule is inert this call but re-checks readiness next time - memoizing the empty
+--- set would freeze the rule off for the whole session (an early call from support detection would
+--- leak the carriers forever). Logs once if zero names resolve (a modded/renamed-fill-type context).
+---@return table set A set { [fillTypeIndex] = true } of formed-bale fill-type indices (possibly empty, uncached)
+function RmVehicleStorageCapacity.getFormedBaleFillTypeSet()
+    if RmVehicleStorageCapacity._formedBaleFillTypeSet ~= nil then
+        return RmVehicleStorageCapacity._formedBaleFillTypeSet
+    end
+    if g_fillTypeManager == nil then
+        return {}  -- inert this call; do NOT memoize, so readiness is re-checked next time
+    end
+    local set = {}
+    for _, name in ipairs(RmVehicleStorageCapacity.FORMED_BALE_FILL_TYPE_NAMES) do
+        local idx = g_fillTypeManager:getFillTypeIndexByName(name)
+        if idx ~= nil then
+            set[idx] = true
+        end
+    end
+    if next(set) == nil then
+        -- Manager present but nothing resolved (renamed/removed fill types, or called before fill types
+        -- are registered): return the empty set UN-cached, exactly like the manager-absent path, so the
+        -- rule is inert this call but re-checks next time. Memoizing it here would freeze the rule off
+        -- for the whole session - the same trap the "never memoize an empty set" Boundary guards against.
+        Log:warning("getFormedBaleFillTypeSet: no formed-bale fill types resolved - carrier exclusion inert this call")
+        return set
+    end
+    RmVehicleStorageCapacity._formedBaleFillTypeSet = set
+    return set
+end
+
 --- Build the set of fill-unit indices that ASC must NOT adjust because a base specialization
---- OWNS or RE-DERIVES their capacity: leveler buffers, the baler bale chamber (+ the overload
---- buffer only when the game re-derives it from capacityPercentage), bale-loader platform units
---- (capacity is a bale COUNT, not liters), consumable slot-count units, and the strawblower blow
---- buffer. Baler ADDITIVES and a fixed-capacity baler buffer (no capacityPercentage) are NOT
---- excluded - they are genuine adjustable storage. This is the single SSOT consulted at the offer
---- list, support detection, and the apply/persist chokepoints. Every spec table and field is
---- nil-guarded; an index claimed by two specs is idempotent (set semantics - any excluding spec wins).
+--- OWNS or RE-DERIVES their capacity, or because the unit holds a discrete count rather than liters.
+--- Excluded families:
+---   - leveler buffers (main + per node);
+---   - the baler bale chamber (+ the overload buffer only when the game re-derives it from
+---     capacityPercentage);
+---   - bale-loader platform units (capacity is a bale COUNT, not liters);
+---   - consumable slot-count units;
+---   - the strawblower blow buffer;
+---   - tree-planter sapling magazines (a sapling COUNT, re-derived from the mounted pallet);
+---   - feller-buncher tree-grab units (a tree COUNT via getNumLoadedTrees; fillUnitIndex has no XML default);
+---   - any fill unit whose EVERY supported fill type is a FORMED-BALE type (ROUNDBALE* / SQUAREBALE*) -
+---     a bale COUNT; the only signal that reaches dynamic-mount carriers (kroeger/pwo24, farmtech/dpw1800)
+---     whose bale unit no spec owns.
+--- Baler ADDITIVES and a fixed-capacity baler buffer (no capacityPercentage) are NOT excluded - they are
+--- genuine adjustable storage. This is the single SSOT consulted at the offer list, support detection,
+--- and the apply/persist chokepoints. Every spec table and field is nil-guarded; an index claimed by two
+--- rules is idempotent (set semantics - any excluding rule wins).
 ---@param vehicle table The vehicle to classify
 ---@return table excluded A set { [fillUnitIndex] = true } of indices ASC must leave alone
 function RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
@@ -156,6 +207,50 @@ function RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
     local strawBlowerSpec = vehicle.spec_strawBlower
     if strawBlowerSpec ~= nil and strawBlowerSpec.fillUnitIndex ~= nil then
         excluded[strawBlowerSpec.fillUnitIndex] = true
+    end
+
+    -- TreePlanter: the sapling magazine (default fillUnitIndex 1) holds a sapling COUNT - re-derived
+    -- from the mounted sapling pallet, or 0 -> unbounded when empty. Meaningless to edit, same class as
+    -- a consumable slot count. @see TreePlanter.spec_treePlanter.fillUnitIndex
+    local treePlanterSpec = vehicle.spec_treePlanter
+    if treePlanterSpec ~= nil and treePlanterSpec.fillUnitIndex ~= nil then
+        excluded[treePlanterSpec.fillUnitIndex] = true
+    end
+
+    -- FellerBuncher: the tree-grab unit's capacity is the max trees the head holds (a count via
+    -- FellerBuncher:getNumLoadedTrees), not liters. fillUnitIndex has NO XML default - nil-guard it.
+    -- Diesel/DEF on the same machine stay adjustable.
+    local fellerBuncherSpec = vehicle.spec_fellerBuncher
+    if fellerBuncherSpec ~= nil and fellerBuncherSpec.fillUnitIndex ~= nil then
+        excluded[fellerBuncherSpec.fillUnitIndex] = true
+    end
+
+    -- Unowned formed-bale carriers: a fill unit whose EVERY supported fill type is a formed bale is a
+    -- bale COUNT (capacity = 1..N bales, never liters). On dynamic-mount carriers (kroeger/pwo24,
+    -- farmtech/dpw1800) NO spec owns the index, so the spec_baleLoader branch above never reaches it -
+    -- this fill-type rule is the only one that does. ALL (not any) supported types must be formed bales,
+    -- so a mixed liter+bale unit stays adjustable. Idempotent with the bale spec branches above. The
+    -- ipairs position i IS the fill-unit index (dense 1-based array, same as getAllFillUnitInfo's loop).
+    local fillUnitSpec = vehicle.spec_fillUnit
+    if fillUnitSpec ~= nil and fillUnitSpec.fillUnits ~= nil then
+        local formedBales = RmVehicleStorageCapacity.getFormedBaleFillTypeSet()
+        if next(formedBales) ~= nil then
+            for i, fillUnit in ipairs(fillUnitSpec.fillUnits) do
+                local supported = fillUnit.supportedFillTypes
+                if supported ~= nil and next(supported) ~= nil then
+                    local allFormedBales = true
+                    for fillTypeIndex in pairs(supported) do
+                        if not formedBales[fillTypeIndex] then
+                            allFormedBales = false
+                            break
+                        end
+                    end
+                    if allFormedBales then
+                        excluded[i] = true
+                    end
+                end
+            end
+        end
     end
 
     return excluded
