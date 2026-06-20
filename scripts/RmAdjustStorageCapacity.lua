@@ -1126,28 +1126,45 @@ function RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCap
     return applied > 0
 end
 
---- Apply capacity to HusbandryFood
---- NOTE: We intentionally do NOT modify FILLLEVEL_NUM_BITS here.
+--- Normalize the husbandryFood serialization bit width to a CONSTANT, SYMMETRIC value.
+--- Called once per husbandryFood placeable from RmPlaceableStorageCapacity:onLoad, on EVERY
+--- peer, BEFORE any husbandryFood stream runs. A no-op unless the placeable has spec_husbandryFood.
 ---
---- MULTIPLAYER STREAM CORRUPTION BUG (discovered 2024-12-20):
---- PlaceableHusbandryFood.onWriteStream/onReadStream use FILLLEVEL_NUM_BITS to serialize
---- fill levels. This value is calculated from spec.capacity in onLoad (from XML).
+--- WHY (MULTIPLAYER STREAM CORRUPTION, observed 2024-12-20; re-fixed ASC-28 Part B):
+--- the base game packs each husbandryFood fill value into a bit field whose width is sized from
+--- the trough's ORIGINAL capacity (held in spec.FILLLEVEL_NUM_BITS). ASC raises the capacity but
+--- the field width is not widened with it, so a fill above the original range wraps on the wire
+--- (default 5000 trough -> a fill of 10000 renders as 1808 on other peers). An earlier attempt to
+--- re-size the field from the RAISED capacity made the server and a joining client disagree on the
+--- width (only the server knew the custom capacity at stream time), which desynced the shared
+--- object stream and crashed a neighboring husbandry spec that reads after it.
 ---
---- If we modify FILLLEVEL_NUM_BITS on the server after applying custom capacity:
----   Server: capacity=50000 -> FILLLEVEL_NUM_BITS=16
----   Client: capacity=5000 (XML) -> FILLLEVEL_NUM_BITS=13
----   Server writes 16 bits per fill type, client reads 13 bits -> STREAM CORRUPTION
----   Subsequent specializations (e.g., PlaceableHusbandryFence) read garbage -> crash
----
---- CURRENT LIMITATION:
---- Fill levels above original XML capacity's bit range will be truncated during MP sync.
---- Example: Original capacity 5000 (13 bits, max 8191). If fill=10000, MP syncs as 1808.
---- This causes data loss but prevents crashes. Works correctly in singleplayer.
----
---- FUTURE IMPROVEMENT:
---- Use Event-based sync to update client's capacity BEFORE PlaceableHusbandryFood's
---- ReadStream runs, so both sides calculate the same FILLLEVEL_NUM_BITS.
----
+--- THE FIX (symmetric by construction): force the width to getNumRequiredBits(MAX_CAPACITY)
+--- (== 31, the Int32 ceiling ASC-29 enforces on the capacity VALUE) UNCONDITIONALLY for every
+--- husbandryFood placeable. Both peers run this identical code against the same MAX_CAPACITY
+--- constant, so both compute the identical 31 regardless of any custom capacity -> no asymmetry,
+--- no cursor desync, and the field now carries the full fill up to MAX_CAPACITY. Set ONLY here
+--- (single source, at onLoad, before any stream); runtime paths (applyHusbandryFoodCapacity,
+--- sync events, reset) must NOT touch the width or the asymmetry returns.
+---@param placeable table The placeable; a no-op unless it has spec_husbandryFood.
+function RmAdjustStorageCapacity:normalizeHusbandryFoodBitWidth(placeable)
+    local spec = placeable ~= nil and placeable.spec_husbandryFood
+    if not spec then
+        return
+    end
+
+    local oldBits = spec.FILLLEVEL_NUM_BITS
+    spec.FILLLEVEL_NUM_BITS = MathUtil.getNumRequiredBits(self.MAX_CAPACITY)
+    Log:debug("husbandryFood FILLLEVEL_NUM_BITS normalized %s -> %d (constant, symmetric on every peer)",
+        tostring(oldBits), spec.FILLLEVEL_NUM_BITS)
+end
+
+--- Apply capacity to HusbandryFood.
+--- The serialization bit width is NOT touched here. It is set once, unconditionally, in
+--- normalizeHusbandryFoodBitWidth at onLoad (constant getNumRequiredBits(MAX_CAPACITY) == 31,
+--- symmetric on every peer, so a fill up to MAX_CAPACITY survives the wire). Re-deriving the
+--- width in this runtime path would reintroduce the server/client width asymmetry that corrupted
+--- the husbandryFood stream and crashed downstream specs - see normalizeHusbandryFoodBitWidth.
 ---@param spec table The spec_husbandryFood table
 ---@param newCapacity number The new capacity
 function RmAdjustStorageCapacity:applyHusbandryFoodCapacity(spec, newCapacity)
@@ -1166,7 +1183,8 @@ function RmAdjustStorageCapacity:applyHusbandryFoodCapacity(spec, newCapacity)
         end
     end
 
-    -- DO NOT modify FILLLEVEL_NUM_BITS - see function comment for MP stream corruption bug
+    -- Width is fixed once at onLoad (normalizeHusbandryFoodBitWidth, constant + symmetric);
+    -- never touch FILLLEVEL_NUM_BITS in this runtime path or the MP stream asymmetry returns.
 
     -- Log overfill situation if present
     if totalFill > newCapacity then

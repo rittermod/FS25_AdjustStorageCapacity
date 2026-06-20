@@ -94,6 +94,12 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
     Log:debug("onLoad: %s (uniqueId=%s, ownerFarmId=%s)",
         placeableName, tostring(self.uniqueId), tostring(ownerFarmId))
 
+    -- CRITICAL (MP): force the husbandryFood serialization bit width to a constant, symmetric
+    -- value on EVERY peer, BEFORE any husbandryFood stream. Unconditional and before the
+    -- server-savegame guard below so server and client always agree (a pure client does not yet
+    -- know a trough's custom capacity at onLoad). No-op for non-husbandryFood placeables.
+    RmAdjustStorageCapacity:normalizeHusbandryFoodBitWidth(self)
+
     -- CRITICAL: Capture original capacities BEFORE applying custom capacities
     -- This ensures we have the true original values for speed scaling calculations
     RmAdjustStorageCapacity:captureOriginalCapacities(self)
