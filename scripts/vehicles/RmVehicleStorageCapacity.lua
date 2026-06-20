@@ -57,7 +57,85 @@ function RmVehicleStorageCapacity.isVehicleSupported(vehicle)
         return false, "is_bigbag"
     end
 
+    -- Drop a vehicle whose EVERY fill unit is owned/re-derived by another spec (a pure
+    -- baler/consumable/strawblower/leveler): nothing is left for ASC to adjust, so the K prompt,
+    -- picker, menu, and console list all skip it. Runs last - after no_fill_units guarantees
+    -- #fillUnits > 0 - so a zero-fill-unit vehicle is never labelled "no_adjustable_fill_units".
+    local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
+    local adjustableCount = 0
+    for i = 1, #fillUnitSpec.fillUnits do
+        if not excludedFillUnits[i] then
+            adjustableCount = adjustableCount + 1
+        end
+    end
+    if adjustableCount == 0 then
+        return false, "no_adjustable_fill_units"
+    end
+
     return true, nil
+end
+
+--- Build the set of fill-unit indices that ASC must NOT adjust because a base specialization
+--- OWNS or RE-DERIVES their capacity: leveler buffers, the baler bale chamber (+ optional overload
+--- buffer), consumable slot-count units, and the strawblower blow buffer. Baler ADDITIVES are NOT
+--- excluded - a static side tank that is never re-derived, so it stays genuine adjustable storage.
+--- This is the single SSOT consulted at the offer list, support detection, and the apply/persist
+--- chokepoints. Every spec table and field is nil-guarded; an index claimed by two specs is
+--- idempotent (set semantics - any excluding spec wins).
+---@param vehicle table The vehicle to classify
+---@return table excluded A set { [fillUnitIndex] = true } of indices ASC must leave alone
+function RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
+    local excluded = {}
+    if vehicle == nil then
+        return excluded
+    end
+
+    -- Leveler: the main fill unit plus each node's fill unit - internal buffers for pushing /
+    -- leveling material in bunker silos.
+    local levelerSpec = vehicle.spec_leveler
+    if levelerSpec ~= nil then
+        if levelerSpec.fillUnitIndex ~= nil then
+            excluded[levelerSpec.fillUnitIndex] = true
+        end
+        if levelerSpec.nodes ~= nil then
+            for _, node in pairs(levelerSpec.nodes) do
+                if node.fillUnitIndex ~= nil then
+                    excluded[node.fillUnitIndex] = true
+                end
+            end
+        end
+    end
+
+    -- Baler: the bale chamber (the game sizes it from the bale being formed, not a user value) and
+    -- the OPTIONAL overload buffer. NOT the additives tank, which stays adjustable.
+    local balerSpec = vehicle.spec_baler
+    if balerSpec ~= nil then
+        if balerSpec.fillUnitIndex ~= nil then
+            excluded[balerSpec.fillUnitIndex] = true
+        end
+        if balerSpec.buffer ~= nil and balerSpec.buffer.fillUnitIndex ~= nil then
+            excluded[balerSpec.buffer.fillUnitIndex] = true
+        end
+    end
+
+    -- Consumable: each type's fill unit holds a slot count, not a liter capacity - meaningless to
+    -- edit. The per-type fillUnitIndex may be nil; guard it.
+    local consumableSpec = vehicle.spec_consumable
+    if consumableSpec ~= nil and consumableSpec.types ~= nil then
+        for _, consumableType in pairs(consumableSpec.types) do
+            if consumableType.fillUnitIndex ~= nil then
+                excluded[consumableType.fillUnitIndex] = true
+            end
+        end
+    end
+
+    -- StrawBlower: the single fill unit is re-derived to the bale currently being blown.
+    local strawBlowerSpec = vehicle.spec_strawBlower
+    if strawBlowerSpec ~= nil and strawBlowerSpec.fillUnitIndex ~= nil then
+        excluded[strawBlowerSpec.fillUnitIndex] = true
+    end
+
+    return excluded
 end
 
 -- ============================================================================
@@ -215,25 +293,38 @@ function RmVehicleStorageCapacity:onLoad(savegame)
             RmAdjustStorageCapacity.vehicleCapacities[uniqueId] = entry
             spec.loadedFromSavegame = true
 
+            -- Excluded indices are owned/re-derived by a base spec; skip applying (and saveToXMLFile
+            -- skips persisting) so a pre-fix / stale override on a now-excluded unit self-cleans on
+            -- the next save instead of being re-asserted. self IS the vehicle in this onLoad method.
+            local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(self)
             if fillUnitSpec ~= nil and fillUnitSpec.fillUnits ~= nil then
                 for fillUnitIndex, capacity in pairs(entry) do
-                    local fillUnit = fillUnitSpec.fillUnits[fillUnitIndex]
-                    if fillUnit then
-                        local oldCapacity = fillUnit.capacity
-                        fillUnit.capacity = capacity
-                        Log:info("LOAD_SAVEGAME: %s fillUnit[%d] %d -> %d (BEFORE fill levels load)",
-                            vehicleName, fillUnitIndex, oldCapacity, capacity)
-
-                        -- Apply proportional discharge speed
-                        RmVehicleStorageCapacity.applyProportionalDischargeSpeed(self, fillUnitIndex, capacity)
-
-                        -- Update FillVolume capacity and recreate 3D fill plane mesh
-                        -- FillVolume:onLoad already ran with original capacity, so fillVolume.capacity
-                        -- and the mesh are stale. Recreate now so fill levels loaded in onPostLoad
-                        -- render with correct proportions. Fill is 0 at this point (loaded later).
-                        RmAdjustStorageCapacity:updateVehicleFillVolumeCapacity(self, fillUnitIndex, capacity)
+                    if excludedFillUnits[fillUnitIndex] then
+                        Log:debug("LOAD_SAVEGAME: %s fillUnit[%d] excluded (owned by base spec) - skip apply",
+                            vehicleName, fillUnitIndex)
                     else
-                        Log:warning("LOAD_SAVEGAME: %s fillUnit[%d] not found", vehicleName, fillUnitIndex)
+                        local fillUnit = fillUnitSpec.fillUnits[fillUnitIndex]
+                        if fillUnit then
+                            local oldCapacity = fillUnit.capacity
+                            fillUnit.capacity = capacity
+                            -- Retarget the reset baseline (ASC-5): a loader/shovel bucket snaps its
+                            -- capacity back to its stored default after a scoop; moving the default too
+                            -- makes that snap land on ASC's value. Harmless for units with no such reset.
+                            fillUnit.defaultCapacity = capacity
+                            Log:info("LOAD_SAVEGAME: %s fillUnit[%d] %d -> %d (BEFORE fill levels load)",
+                                vehicleName, fillUnitIndex, oldCapacity, capacity)
+
+                            -- Apply proportional discharge speed
+                            RmVehicleStorageCapacity.applyProportionalDischargeSpeed(self, fillUnitIndex, capacity)
+
+                            -- Update FillVolume capacity and recreate 3D fill plane mesh
+                            -- FillVolume:onLoad already ran with original capacity, so fillVolume.capacity
+                            -- and the mesh are stale. Recreate now so fill levels loaded in onPostLoad
+                            -- render with correct proportions. Fill is 0 at this point (loaded later).
+                            RmAdjustStorageCapacity:updateVehicleFillVolumeCapacity(self, fillUnitIndex, capacity)
+                        else
+                            Log:warning("LOAD_SAVEGAME: %s fillUnit[%d] not found", vehicleName, fillUnitIndex)
+                        end
                     end
                 end
             else
@@ -321,32 +412,47 @@ function RmVehicleStorageCapacity:onWriteStream(streamId, connection)
         customCaps = RmAdjustStorageCapacity.vehicleCapacities[uniqueId]
     end
 
-    -- Write whether we have custom capacities
-    if streamWriteBool(streamId, customCaps ~= nil) then
-        -- Count fill units with custom capacities
-        local count = 0
-        for _ in pairs(customCaps) do
-            count = count + 1
+    -- Exclude indices owned/re-derived by a base spec from the MP sync entirely: an excluded
+    -- override (e.g. a stale pre-fix one still in the map) must never reach a joining client,
+    -- where it would be stored and its carried fill replayed onto the owning spec's unit. Filter
+    -- at this write source so onReadStream receives only genuine units - the same apply/persist
+    -- chokepoint discipline, extended to the MP write path. self IS the vehicle here.
+    local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(self)
+
+    -- Count only the NON-excluded custom capacities so the bool reflects whether anything real
+    -- ships and onReadStream reads exactly as many entries as are written (cursor stays aligned).
+    local count = 0
+    if customCaps ~= nil then
+        for fillUnitIndex in pairs(customCaps) do
+            if not excludedFillUnits[fillUnitIndex] then
+                count = count + 1
+            end
         end
+    end
+
+    -- Write whether we have (non-excluded) custom capacities
+    if streamWriteBool(streamId, count > 0) then
         streamWriteInt32(streamId, count)
 
         -- Write each fill unit's custom capacity PLUS the server's TRUE fill level, so a
         -- joining client can re-establish it AFTER ASC raises the capacity. Base
         -- FillUnit:onReadStream deserializes + clamps fill to the ORIGINAL capacity before
         -- ASC's spec runs, discarding everything above it; carrying the truth here lets the
-        -- client top the unit back up once the capacity is raised. One float per customCaps
-        -- entry (count unchanged); value is fu.fillLevel for an existing synchronized unit,
-        -- else 0 (a 0 is never re-applied on read, so it cannot erase a real client fill).
+        -- client top the unit back up once the capacity is raised. One float per written
+        -- entry; value is fu.fillLevel for an existing synchronized unit, else 0 (a 0 is
+        -- never re-applied on read, so it cannot erase a real client fill).
         local fillUnits = self.spec_fillUnit and self.spec_fillUnit.fillUnits
         for fillUnitIndex, capacity in pairs(customCaps) do
-            streamWriteInt32(streamId, fillUnitIndex)
-            streamWriteInt32(streamId, capacity)
-            local fillLevel = 0
-            local fu = fillUnits and fillUnits[fillUnitIndex]
-            if fu ~= nil and fu.synchronizeFillLevel then
-                fillLevel = fu.fillLevel or 0
+            if not excludedFillUnits[fillUnitIndex] then
+                streamWriteInt32(streamId, fillUnitIndex)
+                streamWriteInt32(streamId, capacity)
+                local fillLevel = 0
+                local fu = fillUnits and fillUnits[fillUnitIndex]
+                if fu ~= nil and fu.synchronizeFillLevel then
+                    fillLevel = fu.fillLevel or 0
+                end
+                streamWriteFloat32(streamId, fillLevel)
             end
-            streamWriteFloat32(streamId, fillLevel)
         end
 
         Log:debug("WriteStream: Sent %d custom capacities for %s", count, self:getName())
@@ -439,29 +545,16 @@ function RmVehicleStorageCapacity:getAllFillUnitInfo()
         return result
     end
 
-    -- Build set of fill unit indexes used by Leveler specialization (internal mechanics)
-    local levelerFillUnits = {}
-    local levelerSpec = self.spec_leveler
-    if levelerSpec ~= nil then
-        -- Main leveler fillUnitIndex
-        if levelerSpec.fillUnitIndex ~= nil then
-            levelerFillUnits[levelerSpec.fillUnitIndex] = true
-        end
-        -- Each leveler node can have its own fillUnitIndex
-        if levelerSpec.nodes ~= nil then
-            for _, node in pairs(levelerSpec.nodes) do
-                if node.fillUnitIndex ~= nil then
-                    levelerFillUnits[node.fillUnitIndex] = true
-                end
-            end
-        end
-    end
+    -- Build the set of fill units ASC must not offer (leveler / baler chamber+buffer / consumable
+    -- slots / strawblower buffer) via the shared SSOT. self IS the vehicle here (called dot-style
+    -- with an explicit vehicle, e.g. from RmVehiclePickerDialog).
+    local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(self)
 
     for i, fillUnit in ipairs(fillUnitSpec.fillUnits) do
-        -- Skip leveler fill units - they're internal buffers for pushing/leveling in bunker silos
-        -- Adjusting their capacity would affect leveling mechanics unpredictably
-        if levelerFillUnits[i] then
-            Log:trace("Skipping leveler fill unit %d (capacity=%d L)", i, fillUnit.capacity)
+        -- Skip excluded fill units - internal buffers / re-derived units another spec owns;
+        -- adjusting their capacity would be fought by the owning spec or is meaningless.
+        if excludedFillUnits[i] then
+            Log:trace("Skipping excluded fill unit %d (capacity=%d L)", i, fillUnit.capacity)
         else
             -- Determine display name from fill type title (avoids l10n issues with unitText)
             local displayName = string.format("Tank %d", i)
@@ -649,18 +742,27 @@ function RmVehicleStorageCapacity:saveToXMLFile(xmlFile, key, usedModNames)
 
     local vehicleName = self:getName() or "Unknown"
 
+    -- Skip excluded indices so a stale override on a now-excluded unit is not re-persisted (it
+    -- self-cleans on this save). self IS the vehicle in this saveToXMLFile method.
+    local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(self)
+
     -- Write fill unit capacities directly under the specialization key
     -- key is already "vehicles.vehicle(N).MODNAME.rmVehicleStorageCapacity"
     local fuIndex = 0
     for fillUnitIndex, capacity in pairs(entry) do
-        local fuKey = string.format("%s.fillUnits.fillUnit(%d)", key, fuIndex)
-        xmlFile:setValue(fuKey .. "#index", fillUnitIndex)
-        xmlFile:setValue(fuKey .. "#capacity", capacity)
-        fuIndex = fuIndex + 1
+        if not excludedFillUnits[fillUnitIndex] then
+            local fuKey = string.format("%s.fillUnits.fillUnit(%d)", key, fuIndex)
+            xmlFile:setValue(fuKey .. "#index", fillUnitIndex)
+            xmlFile:setValue(fuKey .. "#capacity", capacity)
+            fuIndex = fuIndex + 1
+        end
     end
 
-    -- Mark mod as used in this savegame
-    table.insert(usedModNames, RmAdjustStorageCapacity.modName)
+    -- Mark mod as used in this savegame only if we actually wrote a fill unit (an all-excluded
+    -- entry writes nothing and must not claim the savegame slot).
+    if fuIndex > 0 then
+        table.insert(usedModNames, RmAdjustStorageCapacity.modName)
+    end
 
     Log:info("SAVE_XML: Wrote vehicle capacity to embedded data for %s (%d fillUnits, key=%s)",
         vehicleName, fuIndex, key)

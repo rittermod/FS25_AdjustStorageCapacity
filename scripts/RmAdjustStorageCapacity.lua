@@ -1131,13 +1131,13 @@ end
 --- peer, BEFORE any husbandryFood stream runs. A no-op unless the placeable has spec_husbandryFood.
 ---
 --- WHY (MULTIPLAYER STREAM CORRUPTION, observed 2024-12-20; re-fixed ASC-28 Part B):
---- the base game packs each husbandryFood fill value into a bit field whose width is sized from
---- the trough's ORIGINAL capacity (held in spec.FILLLEVEL_NUM_BITS). ASC raises the capacity but
---- the field width is not widened with it, so a fill above the original range wraps on the wire
---- (default 5000 trough -> a fill of 10000 renders as 1808 on other peers). An earlier attempt to
---- re-size the field from the RAISED capacity made the server and a joining client disagree on the
---- width (only the server knew the custom capacity at stream time), which desynced the shared
---- object stream and crashed a neighboring husbandry spec that reads after it.
+--- the husbandryFood fill is serialized into a fixed-width bit field (spec.FILLLEVEL_NUM_BITS)
+--- whose width is sized for the trough's ORIGINAL capacity. ASC raises the capacity but the field
+--- width is not widened with it, so a fill above the original range overflows the field and wraps
+--- on the wire (a raised, over-filled trough shows a wrong, much smaller value on other peers). An
+--- earlier attempt to re-size the field from the RAISED capacity made the server and a joining
+--- client disagree on the width (only the server knew the custom capacity at stream time), which
+--- desynced the shared object stream and crashed a neighboring placeable that reads after it.
 ---
 --- THE FIX (symmetric by construction): force the width to getNumRequiredBits(MAX_CAPACITY)
 --- (== 31, the Int32 ceiling ASC-29 enforces on the capacity VALUE) UNCONDITIONALLY for every
@@ -1896,6 +1896,17 @@ function RmAdjustStorageCapacity:applyVehicleCapacity(vehicle, fillUnitIndex, ca
         return
     end
 
+    -- Excluded fill units are owned/re-derived by a base spec (leveler / baler chamber+buffer /
+    -- consumable slots / strawblower buffer). NO-OP here so ASC never fights the owning spec on ANY
+    -- path (set / reset / applyVehicleCapacities / MP onReadStream); a console poke at an excluded
+    -- index is therefore an inert, self-cleaning no-op rather than a rejected request.
+    local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
+    if excludedFillUnits[fillUnitIndex] then
+        Log:debug("applyVehicleCapacity: fillUnit[%d] excluded on %s - no-op",
+            fillUnitIndex, vehicle:getName())
+        return
+    end
+
     local fillUnit = fillUnitSpec.fillUnits[fillUnitIndex]
     if fillUnit == nil then
         Log:warning("Fill unit %d not found on vehicle %s", fillUnitIndex, vehicle:getName())
@@ -1904,6 +1915,11 @@ function RmAdjustStorageCapacity:applyVehicleCapacity(vehicle, fillUnitIndex, ca
 
     local oldCapacity = fillUnit.capacity
     fillUnit.capacity = capacity
+    -- Retarget the reset baseline (ASC-5): a loader/shovel bucket snaps its capacity back to its
+    -- stored default after a scoop, which would otherwise revert ASC's raise; moving the default too
+    -- makes that snap land on ASC's value. Harmless for fill units with no such reset (everything but
+    -- buckets), and only ever reached for non-excluded units (excluded no-op above).
+    fillUnit.defaultCapacity = capacity
 
     -- Check for overfill situation
     if fillUnit.fillLevel > capacity then
@@ -2294,26 +2310,14 @@ function RmAdjustStorageCapacity:consoleCommandListVehicles()
         -- Show fill units
         local fillUnitSpec = vehicle.spec_fillUnit
         if fillUnitSpec ~= nil and fillUnitSpec.fillUnits ~= nil then
-            -- Build set of fill unit indexes used by Leveler specialization (internal mechanics)
-            local levelerFillUnits = {}
-            local levelerSpec = vehicle.spec_leveler
-            if levelerSpec ~= nil then
-                if levelerSpec.fillUnitIndex ~= nil then
-                    levelerFillUnits[levelerSpec.fillUnitIndex] = true
-                end
-                if levelerSpec.nodes ~= nil then
-                    for _, node in pairs(levelerSpec.nodes) do
-                        if node.fillUnitIndex ~= nil then
-                            levelerFillUnits[node.fillUnitIndex] = true
-                        end
-                    end
-                end
-            end
+            -- Build the excluded set via the shared SSOT (leveler / baler chamber+buffer /
+            -- consumable slots / strawblower buffer) so the console list matches the offer list.
+            local excludedFillUnits = RmVehicleStorageCapacity.getExcludedFillUnitIndices(vehicle)
 
             for j, fillUnit in ipairs(fillUnitSpec.fillUnits) do
-                -- Skip leveler fill units - internal buffers for bunker silo leveling
-                if levelerFillUnits[j] then
-                    Log:debug("    - [%d] (leveler buffer - skipped, capacity=%d L)", j, fillUnit.capacity)
+                -- Skip excluded fill units - internal buffers / re-derived units another spec owns
+                if excludedFillUnits[j] then
+                    Log:debug("    - [%d] (excluded buffer - skipped, capacity=%d L)", j, fillUnit.capacity)
                 else
                     -- Get fill type info and display name
                     local ftName = "EMPTY"

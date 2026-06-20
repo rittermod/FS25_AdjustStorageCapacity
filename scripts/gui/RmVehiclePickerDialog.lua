@@ -70,14 +70,20 @@ function RmVehiclePickerDialog:refreshVehicleList()
     for _, vehicle in ipairs(vehicles) do
         local fillUnitInfo = RmVehicleStorageCapacity.getAllFillUnitInfo(vehicle)
         local fillUnitCount = #fillUnitInfo
-        local imageFilename = vehicle.getImageFilename ~= nil and vehicle:getImageFilename() or nil
 
-        table.insert(self.vehicleEntries, {
-            vehicle = vehicle,
-            name = vehicle:getName() or "Unknown",
-            fillUnitCount = fillUnitCount,
-            imageFilename = imageFilename
-        })
+        -- Defensive: skip a vehicle with no adjustable fill units (every unit excluded) so it never
+        -- renders a dead row. Belt-and-suspenders with isVehicleSupported, which already gates
+        -- pendingVehicles to drop a pure baler/consumable/strawblower/leveler.
+        if fillUnitCount > 0 then
+            local imageFilename = vehicle.getImageFilename ~= nil and vehicle:getImageFilename() or nil
+
+            table.insert(self.vehicleEntries, {
+                vehicle = vehicle,
+                name = vehicle:getName() or "Unknown",
+                fillUnitCount = fillUnitCount,
+                imageFilename = imageFilename
+            })
+        end
     end
 
     Log:debug("Vehicle picker: %d entries", #self.vehicleEntries)
