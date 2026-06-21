@@ -12,7 +12,7 @@ local modDirectory = g_currentModDirectory
 source(modDirectory .. "scripts/rmlib/RmLogging.lua")
 -- Get logger for this module
 local Log = RmLogging.getLogger("AdjustStorageCapacity")
-Log:setLevel(RmLogging.LOG_LEVEL.DEBUG)
+Log:setLevel(RmLogging.LOG_LEVEL.INFO)
 
 source(modDirectory .. "scripts/RmAdjustStorageCapacity.lua")
 source(modDirectory .. "scripts/events/RmStorageCapacitySyncEvent.lua")

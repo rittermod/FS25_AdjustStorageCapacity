@@ -41,7 +41,7 @@ RmAdjustStorageCapacity.vehicleCapacities = {}
 -- Maximum capacity any stored value may hold. This is the signed-Int32 ceiling the network
 -- wire (streamWriteInt32) and the savegame (XMLValueType.INT) already impose; a larger value
 -- cannot be represented and would wrap to a negative or small-positive value over the wire.
--- Single source of truth: every enforcement site references this constant, and ASC-28's
+-- Single source of truth: every enforcement site references this constant, and the
 -- husbandryFood bit width is MathUtil.getNumRequiredBits(MAX_CAPACITY) == 31.
 RmAdjustStorageCapacity.MAX_CAPACITY = 2147483647
 
@@ -1130,7 +1130,7 @@ end
 --- Called once per husbandryFood placeable from RmPlaceableStorageCapacity:onLoad, on EVERY
 --- peer, BEFORE any husbandryFood stream runs. A no-op unless the placeable has spec_husbandryFood.
 ---
---- WHY (MULTIPLAYER STREAM CORRUPTION, observed 2024-12-20; re-fixed ASC-28 Part B):
+--- WHY (MULTIPLAYER STREAM CORRUPTION, observed 2024-12-20):
 --- the husbandryFood fill is serialized into a fixed-width bit field (spec.FILLLEVEL_NUM_BITS)
 --- whose width is sized for the trough's ORIGINAL capacity. ASC raises the capacity but the field
 --- width is not widened with it, so a fill above the original range overflows the field and wraps
@@ -1140,7 +1140,7 @@ end
 --- desynced the shared object stream and crashed a neighboring placeable that reads after it.
 ---
 --- THE FIX (symmetric by construction): force the width to getNumRequiredBits(MAX_CAPACITY)
---- (== 31, the Int32 ceiling ASC-29 enforces on the capacity VALUE) UNCONDITIONALLY for every
+--- (== 31, the Int32 ceiling enforced on the capacity VALUE) UNCONDITIONALLY for every
 --- husbandryFood placeable. Both peers run this identical code against the same MAX_CAPACITY
 --- constant, so both compute the identical 31 regardless of any custom capacity -> no asymmetry,
 --- no cursor desync, and the field now carries the full fill up to MAX_CAPACITY. Set ONLY here
@@ -1916,7 +1916,7 @@ function RmAdjustStorageCapacity:applyVehicleCapacity(vehicle, fillUnitIndex, ca
 
     local oldCapacity = fillUnit.capacity
     fillUnit.capacity = capacity
-    -- Retarget the reset baseline (ASC-5): a loader/shovel bucket snaps its capacity back to its
+    -- Retarget the reset baseline: a loader/shovel bucket snaps its capacity back to its
     -- stored default after a scoop, which would otherwise revert ASC's raise; moving the default too
     -- makes that snap land on ASC's value. Harmless for fill units with no such reset (everything but
     -- buckets), and only ever reached for non-excluded units (excluded no-op above).

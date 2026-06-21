@@ -50,6 +50,9 @@ Supports multiplayer with a permission system - server admins can modify any sto
 **Vehicles:**
 - Pallets and big bags not supported (products being transported, not containers)
 - Leveler fill units excluded (internal buffers for bunker silo mechanics)
+- Baler chambers and bale-loader platforms excluded (formed bales are counted, not stored as bulk liters)
+- Tree-planter sapling magazines and feller-buncher tree grabs excluded (saplings/trees are counted, not bulk liters)
+- Dynamic-mount bale carriers excluded (the bale unit is a count, not bulk liters)
 
 ## Installation
 
@@ -146,16 +149,22 @@ The mod supports multiplayer with a permission system:
 
 See [CHANGELOG.md](CHANGELOG.md) for the full changelog.
 
+### 1.0.1.0
+
+- Fixed multiplayer: joining players now see the correct fill level for silos, productions, husbandries, and vehicles filled above their original capacity
+- Fixed multiplayer: animal-food troughs now show the correct feed level for other players when filled above the original capacity
+- Fixed shovels, loaders, and telehandlers reverting a raised capacity after scooping; it now sticks across save and reload
+- Stopped offering the game's auto-managed fill units for editing (baler bale chamber, net/twine/film slots, straw-blower buffer); additive tanks stay adjustable
+- Made a stationary baler's fixed material bunker adjustable again, and stopped listing collected-bale platforms (their capacity is a bale count, not bulk storage)
+- Stopped listing count-based units on tree planters, feller bunchers, and bale carriers (saplings, trees, and bales are counted, not stored in bulk)
+- Fixed savegames holding more than capacity (corrupt or hand-edited) getting stuck; the excess fill is now trimmed on load
+- Fixed very large capacities (above ~2.1 billion) wrapping to negative values; capacity now caps at the maximum with a notification
+
 ### 1.0.0.0
 
 - Fixed 3D fill visuals (vehicle heaps, food troughs) not showing correctly after loading a savegame
 - Fixed straw bedding and water visuals not updating when capacity is changed
 - Fixed 3D fill plane rendering issues in silos and food troughs
-
-### 0.6.1.0 (Beta)
-
-- Fixed excess fill not being removed when resetting capacity to original (shared capacity storages reduce proportionally)
-- Fixed reset failing on newly placed buildings with "No original capacities recorded" error
 
 ## License
 

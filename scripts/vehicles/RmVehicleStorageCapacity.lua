@@ -425,7 +425,7 @@ function RmVehicleStorageCapacity:onLoad(savegame)
                         if fillUnit then
                             local oldCapacity = fillUnit.capacity
                             fillUnit.capacity = capacity
-                            -- Retarget the reset baseline (ASC-5): a loader/shovel bucket snaps its
+                            -- Retarget the reset baseline: a loader/shovel bucket snaps its
                             -- capacity back to its stored default after a scoop; moving the default too
                             -- makes that snap land on ASC's value. Harmless for units with no such reset.
                             fillUnit.defaultCapacity = capacity
