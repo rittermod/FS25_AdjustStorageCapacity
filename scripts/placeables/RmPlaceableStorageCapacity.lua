@@ -137,14 +137,18 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
             local name = xmlFile:getValue(ftKey .. "#name")
             local capacity = xmlFile:getValue(ftKey .. "#capacity")
             if name and capacity then
-                -- Defensive [0, MAX] clamp: heal a pre-fix / hand-edited save (over-max or wrapped-negative).
-                capacity = math.max(0, (RmAdjustStorageCapacity.clampToMax(capacity)))
-                local fillTypeIndex = g_fillTypeManager:getFillTypeIndexByName(name)
-                if fillTypeIndex then
-                    entry.fillTypes[fillTypeIndex] = capacity
-                    Log:debug("LOAD_SAVEGAME: Read fillType %s = %d", name, capacity)
+                -- Check if the parsed capacity is valid. If not, keep the engine default
+                if not RmAdjustStorageCapacity.isStoredCapacityValid(capacity) then
+                    Log:warning("LOAD_SAVEGAME: %s dropped corrupt fillType '%s' capacity (parsed %s) - keeping engine default",
+                        placeableName, name, tostring(capacity))
                 else
-                    Log:warning("LOAD_SAVEGAME: Unknown fill type '%s' in savegame", name)
+                    local fillTypeIndex = g_fillTypeManager:getFillTypeIndexByName(name)
+                    if fillTypeIndex then
+                        entry.fillTypes[fillTypeIndex] = capacity
+                        Log:debug("LOAD_SAVEGAME: Read fillType %s = %d", name, capacity)
+                    else
+                        Log:warning("LOAD_SAVEGAME: Unknown fill type '%s' in savegame", name)
+                    end
                 end
             end
         end)
@@ -152,15 +156,25 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
         -- Read husbandry food capacity
         entry.husbandryFood = xmlFile:getValue(modKey .. ".husbandryFood#capacity")
         if entry.husbandryFood then
-            entry.husbandryFood = math.max(0, (RmAdjustStorageCapacity.clampToMax(entry.husbandryFood)))
-            Log:debug("LOAD_SAVEGAME: Read husbandryFood = %d", entry.husbandryFood)
+            if not RmAdjustStorageCapacity.isStoredCapacityValid(entry.husbandryFood) then
+                Log:warning("LOAD_SAVEGAME: %s dropped corrupt husbandryFood capacity (parsed %s) - keeping engine default",
+                    placeableName, tostring(entry.husbandryFood))
+                entry.husbandryFood = nil
+            else
+                Log:debug("LOAD_SAVEGAME: Read husbandryFood = %d", entry.husbandryFood)
+            end
         end
 
         -- Read shared capacity
         entry.sharedCapacity = xmlFile:getValue(modKey .. ".sharedCapacity#value")
         if entry.sharedCapacity then
-            entry.sharedCapacity = math.max(0, (RmAdjustStorageCapacity.clampToMax(entry.sharedCapacity)))
-            Log:debug("LOAD_SAVEGAME: Read sharedCapacity = %d", entry.sharedCapacity)
+            if not RmAdjustStorageCapacity.isStoredCapacityValid(entry.sharedCapacity) then
+                Log:warning("LOAD_SAVEGAME: %s dropped corrupt sharedCapacity (parsed %s) - keeping engine default",
+                    placeableName, tostring(entry.sharedCapacity))
+                entry.sharedCapacity = nil
+            else
+                Log:debug("LOAD_SAVEGAME: Read sharedCapacity = %d", entry.sharedCapacity)
+            end
         end
 
         -- Apply if we have data
