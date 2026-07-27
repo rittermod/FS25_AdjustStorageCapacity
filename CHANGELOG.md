@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1.1
+
+- Added Russian translation (contributed by Maestro-Ralf)
+- Fixed a corrupted or hand-edited capacity in a savegame loading the storage empty; the game's default capacity is now restored instead
+- Fixed storage staying stuck over its limit after such a capacity was discarded on load; the excess fill is now trimmed
+
 ## 1.0.1.0
 
 - Fixed multiplayer: joining players now see the correct fill level for silos, productions, husbandries, and vehicles filled above their original capacity
