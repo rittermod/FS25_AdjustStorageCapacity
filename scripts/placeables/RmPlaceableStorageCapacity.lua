@@ -132,6 +132,12 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
             sharedCapacity = nil
         }
 
+        -- Dropping a corrupt entry reverts that capacity to the engine default, which can sit BELOW
+        -- the fill level the savegame is about to restore (it was saved under the dropped override).
+        -- That is what the load-time excess-fill heal in loadFromXMLFile exists for, and its gate is
+        -- spec.loadedFromSavegame - so track drops and open the gate even when nothing survived.
+        local droppedCorrupt = false
+
         -- Read fill type capacities (stored by NAME for cross-session stability)
         xmlFile:iterate(modKey .. ".fillTypes.fillType", function(_, ftKey)
             local name = xmlFile:getValue(ftKey .. "#name")
@@ -139,8 +145,9 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
             if name and capacity then
                 -- Check if the parsed capacity is valid. If not, keep the engine default
                 if not RmAdjustStorageCapacity.isStoredCapacityValid(capacity) then
-                    Log:warning("LOAD_SAVEGAME: %s dropped corrupt fillType '%s' capacity (parsed %s) - keeping engine default",
-                        placeableName, name, tostring(capacity))
+                    Log:warning("LOAD_SAVEGAME: %s dropped corrupt fillType '%s' capacity (parsed %s)"
+                        .. " - keeping engine default", placeableName, name, tostring(capacity))
+                    droppedCorrupt = true
                 else
                     local fillTypeIndex = g_fillTypeManager:getFillTypeIndexByName(name)
                     if fillTypeIndex then
@@ -157,9 +164,10 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
         entry.husbandryFood = xmlFile:getValue(modKey .. ".husbandryFood#capacity")
         if entry.husbandryFood then
             if not RmAdjustStorageCapacity.isStoredCapacityValid(entry.husbandryFood) then
-                Log:warning("LOAD_SAVEGAME: %s dropped corrupt husbandryFood capacity (parsed %s) - keeping engine default",
-                    placeableName, tostring(entry.husbandryFood))
+                Log:warning("LOAD_SAVEGAME: %s dropped corrupt husbandryFood capacity (parsed %s)"
+                    .. " - keeping engine default", placeableName, tostring(entry.husbandryFood))
                 entry.husbandryFood = nil
+                droppedCorrupt = true
             else
                 Log:debug("LOAD_SAVEGAME: Read husbandryFood = %d", entry.husbandryFood)
             end
@@ -172,6 +180,7 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
                 Log:warning("LOAD_SAVEGAME: %s dropped corrupt sharedCapacity (parsed %s) - keeping engine default",
                     placeableName, tostring(entry.sharedCapacity))
                 entry.sharedCapacity = nil
+                droppedCorrupt = true
             else
                 Log:debug("LOAD_SAVEGAME: Read sharedCapacity = %d", entry.sharedCapacity)
             end
@@ -193,6 +202,13 @@ function RmPlaceableStorageCapacity:onLoad(savegame)
             else
                 Log:error("LOAD_SAVEGAME: Failed to apply capacity to %s: %s", placeableName, tostring(applyErr))
             end
+        elseif droppedCorrupt then
+            -- Every entry was corrupt: nothing to store or apply, so the placeable keeps its engine
+            -- default. Still open the heal gate - on a shared-capacity storage the restored fill can
+            -- exceed that default, and no override was applied to bound it at onLoad.
+            spec.loadedFromSavegame = true
+            Log:info("LOAD_SAVEGAME: %s kept engine default for every entry (all corrupt)"
+                .. " - excess-fill heal still armed", placeableName)
         end
     end
 end
@@ -448,6 +464,13 @@ function RmPlaceableStorageCapacity:onReadStream(streamId, connection)
             husbandryFood = nil,
             sharedCapacity = nil
         }
+
+        -- The three capacity reads below deliberately HEAL an out-of-range value with a [0, MAX]
+        -- clamp instead of dropping the entry the way the savegame read path does. The asymmetry is
+        -- intentional: the server never stores a corrupt capacity, so the only way a wrapped-negative
+        -- reaches the wire is an older server - and a client that dropped the entry would fall back
+        -- to its local engine default, silently disagreeing with the capacity the server enforces.
+        -- Do not "unify" these three sites with the onLoad drop logic.
 
         -- Read fill type capacities
         local fillTypeCount = streamReadInt32(streamId)

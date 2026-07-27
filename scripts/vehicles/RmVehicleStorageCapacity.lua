@@ -395,8 +395,8 @@ function RmVehicleStorageCapacity:onLoad(savegame)
                 if index and capacity then
                     -- Check if the parsed capacity is valid. If not, keep the engine default.
                     if not RmAdjustStorageCapacity.isStoredCapacityValid(capacity) then
-                        Log:warning("LOAD_SAVEGAME: %s dropped corrupt fillUnit[%s] capacity (parsed %s) - keeping engine default",
-                            vehicleName, tostring(index), tostring(capacity))
+                        Log:warning("LOAD_SAVEGAME: %s dropped corrupt fillUnit[%s] capacity (parsed %s)"
+                            .. " - keeping engine default", vehicleName, tostring(index), tostring(capacity))
                     else
                         entry[index] = capacity
                         Log:debug("LOAD_SAVEGAME: Read fillUnit %d = %d", index, capacity)
@@ -405,6 +405,13 @@ function RmVehicleStorageCapacity:onLoad(savegame)
             end)
 
             if not next(entry) then
+                -- Nothing stored, or every fill unit was corrupt and dropped. Either way the vehicle
+                -- keeps its engine default and loadedFromSavegame stays false, so the onPostLoad
+                -- excess-fill heal is skipped - correct here, because that heal's only non-no-op
+                -- case is a cap-0 unit (treated as unbounded, loads its fill unclamped) and a
+                -- dropped override leaves a NON-zero default, so the unit is bounded and the base
+                -- load clamps it. The placeable path deliberately differs: a shared-capacity storage
+                -- can load over its default, so a drop there arms the heal.
                 Log:debug("LOAD_SAVEGAME_NONE: No fillUnit data for %s", vehicleName)
                 return
             end
@@ -601,6 +608,11 @@ function RmVehicleStorageCapacity:onReadStream(streamId, connection)
             local capacity = streamReadInt32(streamId)
             local fillLevel = streamReadFloat32(streamId)
             -- Defensive [0, MAX] clamp: a pre-fix server could send a wrapped-negative capacity.
+            -- This wire ingress deliberately HEALS instead of dropping the entry the way the
+            -- savegame read path does. The asymmetry is intentional: the server never stores a
+            -- corrupt capacity, and a client that dropped the entry would fall back to its local
+            -- engine default, silently disagreeing with the capacity the server enforces.
+            -- Do not "unify" this site with the onLoad drop logic.
             entry[fillUnitIndex] = math.max(0, (RmAdjustStorageCapacity.clampToMax(capacity)))
             fills[fillUnitIndex] = fillLevel
         end
