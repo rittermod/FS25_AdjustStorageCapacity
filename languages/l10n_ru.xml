@@ -58,5 +58,8 @@
         <text name="rm_asc_settings_autoScaleMass_tooltip" text="Автоматическое уменьшение массы транспортного средства при увеличении грузоподъемности, при этом вес остается пропорциональным первоначальной грузоподъемности. Предотвращает перегрузку транспортных средств, которые становятся слишком тяжелыми для управления."/>
         <text name="rm_asc_settings_autoScaleSpeed" text="Автоматическая шкала скорости загрузки/выгрузки"/>
         <text name="rm_asc_settings_autoScaleSpeed_tooltip" text="Автоматически пропорционально изменяйте скорость загрузки и выгрузки при изменении производительности. Предотвращает слишком длительное заполнение или опорожнение расширенных хранилищ."/>
+        <!-- Clamped-to-max messages (English fallback) -->
+        <text name="rm_asc_mp_success_clampedMax" text="Capacity for %s (%s) set to %d (maximum)"/>
+        <text name="rm_asc_vehicle_capacitySet_clampedMax" text="Capacity for %s set to %d (maximum)"/>
     </texts>
 </l10n>
