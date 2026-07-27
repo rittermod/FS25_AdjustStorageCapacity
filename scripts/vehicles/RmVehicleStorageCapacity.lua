@@ -393,10 +393,14 @@ function RmVehicleStorageCapacity:onLoad(savegame)
                 local index = xmlFile:getValue(fuKey .. "#index")
                 local capacity = xmlFile:getValue(fuKey .. "#capacity")
                 if index and capacity then
-                    -- Defensive [0, MAX] clamp: heal a pre-fix / hand-edited save (over-max or wrapped-negative).
-                    capacity = math.max(0, (RmAdjustStorageCapacity.clampToMax(capacity)))
-                    entry[index] = capacity
-                    Log:debug("LOAD_SAVEGAME: Read fillUnit %d = %d", index, capacity)
+                    -- Check if the parsed capacity is valid. If not, keep the engine default.
+                    if not RmAdjustStorageCapacity.isStoredCapacityValid(capacity) then
+                        Log:warning("LOAD_SAVEGAME: %s dropped corrupt fillUnit[%s] capacity (parsed %s) - keeping engine default",
+                            vehicleName, tostring(index), tostring(capacity))
+                    else
+                        entry[index] = capacity
+                        Log:debug("LOAD_SAVEGAME: Read fillUnit %d = %d", index, capacity)
+                    end
                 end
             end)
 

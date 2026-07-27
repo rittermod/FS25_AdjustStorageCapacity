@@ -78,6 +78,13 @@ function RmAdjustStorageCapacity.clampToMax(value)
     return value, false
 end
 
+--- Check if value is valid.
+---@param value any Value parsed from the savegame (XMLValueType.INT -> number/nil/other)
+---@return boolean valid True when value is a number in [0, MAX_CAPACITY]
+function RmAdjustStorageCapacity.isStoredCapacityValid(value)
+    return type(value) == "number" and value >= 0 and value <= RmAdjustStorageCapacity.MAX_CAPACITY
+end
+
 -- ============================================================================
 -- Storage Enumeration and Type Detection
 -- ============================================================================
