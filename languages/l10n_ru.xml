@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<l10n>
+    <texts>
+        <!-- Input action display name -->
+        <text name="input_RM_ADJUST_STORAGE_CAPACITY" text="Регулировка объема хранилища"/>
+
+        <!-- Activatable action text -->
+        <text name="rm_asc_action_adjustCapacity" text="Регулировка объема хранилища"/>
+        <text name="rm_asc_action_capacity" text="Вместимость"/>
+
+        <!-- Error messages -->
+        <text name="rm_asc_error_notAvailable" text="Действие недоступно"/>
+        <text name="rm_asc_error_notOwner" text="Вам не принадлежит это хранилище"/>
+        <text name="rm_asc_error_notFound" text="Хранилище не найдено"/>
+        <text name="rm_asc_error_notManager" text="Вы должны быть управляющим фермой, чтобы изменить вместимость"/>
+        <text name="rm_asc_error_notModifiable" text="Это хранилище не может быть изменено"/>
+        <text name="rm_asc_error_invalidCapacity" text="Недопустимое значение емкости"/>
+        <text name="rm_asc_error_noFillTypes" text="Типы заполнения для этого хранилища не найдены"/>
+        <text name="rm_asc_error_unknown" text="Произошла неизвестная ошибка"/>
+
+        <!-- MP success message -->
+        <text name="rm_asc_mp_success" text="Вместимость для %s (%s) установить на %d"/>
+        <text name="rm_asc_mp_success_clamped" text="Вместимость для %s (%s) установить на %d (текущий уровень заполнения)"/>
+
+        <!-- Special fill type names -->
+        <text name="rm_asc_husbandryFood" text="Корм для животных (кормушка)"/>
+        <text name="rm_asc_sharedCapacity" text="Общая вместимость"/>
+
+        <!-- Status messages -->
+        <text name="rm_asc_status_reset" text="Вместимость сброшена до значения по умолчанию."/>
+
+        <!-- Capacity dialog -->
+        <text name="rm_asc_dialog_title" text="Регулировка объема хранилища"/>
+        <text name="rm_asc_dialog_info" text="Тип заполнения: %s | Текущий: %d"/>
+        <text name="rm_asc_dialog_ok" text="OK"/>
+        <text name="rm_asc_dialog_cancel" text="Отменить"/>
+        <text name="rm_asc_dialog_close" text="Закрыть"/>
+        <text name="rm_asc_dialog_hint" text="Дважды щелкните, чтобы изменить емкость"/>
+        <text name="rm_asc_dialog_resetAll" text="Сбросить всё"/>
+
+        <!-- Vehicle capacity -->
+        <text name="rm_asc_action_adjustVehicleCapacity" text="Регулировка вместимости транспортного средства"/>
+        <text name="rm_asc_vehicle_dialog_title" text="Регулировка вместимости транспортного средства"/>
+        <text name="rm_asc_vehicle_noFillUnits" text="Для этого транспортного средства не найдено заправочных устройств"/>
+        <text name="rm_asc_vehicle_capacitySet" text="Вместимость для %s установить на %d"/>
+        <text name="rm_asc_vehicle_capacitySet_clamped" text="Вместимость для %s set to %d (текущий уровень заполнения)"/>
+
+        <!-- Vehicle picker (in-vehicle K press) -->
+        <text name="rm_asc_picker_title" text="Выберите транспортное средство"/>
+        <text name="rm_asc_picker_fillUnits" text="%d единицы измерения заполнения"/>
+        <text name="rm_asc_noAdjustableVehicles" text="Нет регулируемых транспортных средств"/>
+
+        <!-- Settings -->
+        <text name="rm_asc_settings_section" text="Регулировка объема хранилища"/>
+        <text name="rm_asc_settings_showTriggerShortcut" text="Показывать быстрый доступ к триггерам"/>
+        <text name="rm_asc_settings_showTriggerShortcut_tooltip" text="Отобразить ярлык для регулировки вместимости при перемещении рядом с размещаемыми объектами и транспортными средствами. Доступ к меню (производство, животные, мастерская, строительство) всегда доступен."/>
+        <text name="rm_asc_settings_autoScaleMass" text="Автоматическая шкала массы транспортного средства"/>
+        <text name="rm_asc_settings_autoScaleMass_tooltip" text="Автоматическое уменьшение массы транспортного средства при увеличении грузоподъемности, при этом вес остается пропорциональным первоначальной грузоподъемности. Предотвращает перегрузку транспортных средств, которые становятся слишком тяжелыми для управления."/>
+        <text name="rm_asc_settings_autoScaleSpeed" text="Автоматическая шкала скорости загрузки/выгрузки"/>
+        <text name="rm_asc_settings_autoScaleSpeed_tooltip" text="Автоматически пропорционально изменяйте скорость загрузки и выгрузки при изменении производительности. Предотвращает слишком длительное заполнение или опорожнение расширенных хранилищ."/>
+    </texts>
+</l10n>
