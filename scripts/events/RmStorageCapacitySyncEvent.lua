@@ -54,13 +54,15 @@ end
 ---@param placeable table The storage placeable object
 ---@param fillTypeIndex number Fill type index (-1 for HusbandryFood)
 ---@param appliedCapacity number The capacity that was applied
-function RmStorageCapacitySyncEvent.newServerToClient(errorCode, placeable, fillTypeIndex, appliedCapacity)
+---@param actionType number ACTION_SET_CAPACITY or ACTION_RESET_CAPACITY
+function RmStorageCapacitySyncEvent.newServerToClient(errorCode, placeable, fillTypeIndex, appliedCapacity, actionType)
     local self = RmStorageCapacitySyncEvent.emptyNew()
 
     self.errorCode = errorCode or RmStorageCapacitySyncEvent.ERROR_UNKNOWN
     self.placeable = placeable
     self.fillTypeIndex = fillTypeIndex or 0
     self.appliedCapacity = appliedCapacity or 0
+    self.actionType = actionType or RmStorageCapacitySyncEvent.ACTION_SET_CAPACITY
     self.isResponse = true
 
     return self
@@ -83,6 +85,7 @@ function RmStorageCapacitySyncEvent:readStream(streamId, connection)
         self.placeable = NetworkUtil.readNodeObject(streamId)
         self.fillTypeIndex = streamReadInt32(streamId)
         self.appliedCapacity = streamReadInt32(streamId)
+        self.actionType = streamReadUIntN(streamId, 2)
         self.isResponse = true
     end
 
@@ -105,6 +108,7 @@ function RmStorageCapacitySyncEvent:writeStream(streamId, connection)
         NetworkUtil.writeNodeObject(streamId, self.placeable)
         streamWriteInt32(streamId, self.fillTypeIndex or 0)
         streamWriteInt32(streamId, self.appliedCapacity or 0)
+        streamWriteUIntN(streamId, self.actionType or RmStorageCapacitySyncEvent.ACTION_SET_CAPACITY, 2)
     end
 end
 
@@ -198,7 +202,10 @@ function RmStorageCapacitySyncEvent:runOnServer(connection)
                 if hasPermission then
                     if self.actionType == RmStorageCapacitySyncEvent.ACTION_RESET_CAPACITY then
                         -- Reset capacity (convert network sentinel -2 back to nil for "reset all")
-                        local resetIndex = self.fillTypeIndex == RmStorageCapacitySyncEvent.FILL_TYPE_RESET_ALL and nil or self.fillTypeIndex
+                        local resetIndex = self.fillTypeIndex
+                        if resetIndex == RmStorageCapacitySyncEvent.FILL_TYPE_RESET_ALL then
+                            resetIndex = nil
+                        end
                         local success, err = RmAdjustStorageCapacity:resetCapacity(placeable, resetIndex)
                         if success then
                             appliedCapacity = 0 -- Original capacity
@@ -236,13 +243,13 @@ function RmStorageCapacitySyncEvent:runOnServer(connection)
     -- Send response back to requesting client
     Log:debug("Server sending response: errorCode=%d, appliedCapacity=%d", errorCode, appliedCapacity)
     connection:sendEvent(RmStorageCapacitySyncEvent.newServerToClient(
-        errorCode, placeable, self.fillTypeIndex, appliedCapacity))
+        errorCode, placeable, self.fillTypeIndex, appliedCapacity, self.actionType))
 
     -- If successful, broadcast to all OTHER clients
     if errorCode == RmStorageCapacitySyncEvent.RESULT_OK then
         Log:debug("Broadcasting success to other clients")
         g_server:broadcastEvent(RmStorageCapacitySyncEvent.newServerToClient(
-            errorCode, placeable, self.fillTypeIndex, appliedCapacity), false, connection)
+            errorCode, placeable, self.fillTypeIndex, appliedCapacity, self.actionType), false, connection)
     end
 end
 
@@ -257,56 +264,45 @@ function RmStorageCapacitySyncEvent:runOnClient()
     if self.errorCode == RmStorageCapacitySyncEvent.RESULT_OK then
         -- Update local state
         if placeable ~= nil then
-            local uniqueId = placeable.uniqueId
+            local success
+            local err
 
-            if uniqueId == nil then
-                Log:warning("Client: Placeable %s has nil uniqueId", placeableName)
-                return
+            if self.actionType == RmStorageCapacitySyncEvent.ACTION_RESET_CAPACITY then
+                local resetIndex = self.fillTypeIndex
+                if resetIndex == RmStorageCapacitySyncEvent.FILL_TYPE_RESET_ALL then
+                    resetIndex = nil
+                end
+                success, err = RmAdjustStorageCapacity:resetCapacity(placeable, resetIndex)
+            else
+                success, err = RmAdjustStorageCapacity:setCapacity(
+                    placeable, self.fillTypeIndex, self.appliedCapacity)
             end
 
-            -- Apply the capacity locally
-            if self.appliedCapacity > 0 then
-                if RmAdjustStorageCapacity.customCapacities[uniqueId] == nil then
-                    RmAdjustStorageCapacity.customCapacities[uniqueId] = {
-                        fillTypes = {},
-                        husbandryFood = nil
-                    }
-                end
-
-                -- Handle special cases: -1 = HusbandryFood, 0 = shared capacity
-                if self.fillTypeIndex == -1 then
-                    RmAdjustStorageCapacity.customCapacities[uniqueId].husbandryFood = self.appliedCapacity
-                    local customCapacity = {husbandryFood = self.appliedCapacity}
-                    RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCapacity)
-                elseif self.fillTypeIndex == 0 then
-                    -- Shared capacity (fillType 0 is sentinel for shared)
-                    RmAdjustStorageCapacity.customCapacities[uniqueId].sharedCapacity = self.appliedCapacity
-                    local customCapacity = {sharedCapacity = self.appliedCapacity}
-                    RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCapacity)
-                else
-                    -- Per-fillType capacity
-                    if RmAdjustStorageCapacity.customCapacities[uniqueId].fillTypes == nil then
-                        RmAdjustStorageCapacity.customCapacities[uniqueId].fillTypes = {}
-                    end
-                    RmAdjustStorageCapacity.customCapacities[uniqueId].fillTypes[self.fillTypeIndex] = self.appliedCapacity
-                    local customCapacity = {fillTypes = {[self.fillTypeIndex] = self.appliedCapacity}}
-                    RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCapacity)
-                end
+            if not success then
+                Log:warning("Client could not apply capacity update for %s: %s",
+                    placeableName, err or "unknown")
+                return
             end
 
             Log:debug("MP: Updated local capacity for %s fillType=%d to %d",
                 placeableName, self.fillTypeIndex, self.appliedCapacity)
 
             -- Show success message
-            local fillTypeName
-            if self.fillTypeIndex == -1 then
-                fillTypeName = g_i18n:getText("rm_asc_husbandryFood") or "Animal Food"
+            if self.actionType == RmStorageCapacitySyncEvent.ACTION_RESET_CAPACITY then
+                g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
+                    g_i18n:getText("rm_asc_status_reset"))
             else
-                local fillType = g_fillTypeManager:getFillTypeByIndex(self.fillTypeIndex)
-                fillTypeName = fillType and fillType.title or "Unknown"
+                local fillTypeName
+                if self.fillTypeIndex == -1 then
+                    fillTypeName = g_i18n:getText("rm_asc_husbandryFood") or "Animal Food"
+                else
+                    local fillType = g_fillTypeManager:getFillTypeByIndex(self.fillTypeIndex)
+                    fillTypeName = fillType and fillType.title or "Unknown"
+                end
+                g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
+                    string.format(g_i18n:getText("rm_asc_mp_success"),
+                        placeableName, fillTypeName, self.appliedCapacity))
             end
-            g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
-                string.format(g_i18n:getText("rm_asc_mp_success"), placeableName, fillTypeName, self.appliedCapacity))
         else
             Log:warning("Client: Placeable not found in response")
         end
@@ -384,7 +380,8 @@ function RmStorageCapacitySyncEvent.sendSetCapacity(placeable, fillTypeIndex, ne
             -- Broadcast to clients if MP
             if isMultiplayer then
                 g_server:broadcastEvent(RmStorageCapacitySyncEvent.newServerToClient(
-                    RmStorageCapacitySyncEvent.RESULT_OK, placeable, fillTypeIndex, newCapacity))
+                    RmStorageCapacitySyncEvent.RESULT_OK, placeable, fillTypeIndex, newCapacity,
+                    RmStorageCapacitySyncEvent.ACTION_SET_CAPACITY))
             end
 
             local fillTypeName
@@ -441,7 +438,9 @@ function RmStorageCapacitySyncEvent.sendResetCapacity(placeable, fillTypeIndex)
             -- Broadcast to clients if MP
             if isMultiplayer then
                 g_server:broadcastEvent(RmStorageCapacitySyncEvent.newServerToClient(
-                    RmStorageCapacitySyncEvent.RESULT_OK, placeable, fillTypeIndex or RmStorageCapacitySyncEvent.FILL_TYPE_RESET_ALL, 0))
+                    RmStorageCapacitySyncEvent.RESULT_OK, placeable,
+                    fillTypeIndex or RmStorageCapacitySyncEvent.FILL_TYPE_RESET_ALL, 0,
+                    RmStorageCapacitySyncEvent.ACTION_RESET_CAPACITY))
             end
 
             g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
