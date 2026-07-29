@@ -51,13 +51,15 @@ end
 ---@param vehicle table The vehicle object
 ---@param fillUnitIndex number Fill unit index
 ---@param appliedCapacity number The capacity that was applied
-function RmVehicleCapacitySyncEvent.newServerToClient(errorCode, vehicle, fillUnitIndex, appliedCapacity)
+---@param actionType number ACTION_SET_CAPACITY or ACTION_RESET_CAPACITY
+function RmVehicleCapacitySyncEvent.newServerToClient(errorCode, vehicle, fillUnitIndex, appliedCapacity, actionType)
     local self = RmVehicleCapacitySyncEvent.emptyNew()
 
     self.errorCode = errorCode or RmVehicleCapacitySyncEvent.ERROR_UNKNOWN
     self.vehicle = vehicle
     self.fillUnitIndex = fillUnitIndex or 1
     self.appliedCapacity = appliedCapacity or 0
+    self.actionType = actionType or RmVehicleCapacitySyncEvent.ACTION_SET_CAPACITY
     self.isResponse = true
 
     return self
@@ -80,6 +82,7 @@ function RmVehicleCapacitySyncEvent:readStream(streamId, connection)
         self.vehicle = NetworkUtil.readNodeObject(streamId)
         self.fillUnitIndex = streamReadInt32(streamId)
         self.appliedCapacity = streamReadInt32(streamId)
+        self.actionType = streamReadUIntN(streamId, 2)
         self.isResponse = true
     end
 
@@ -102,6 +105,7 @@ function RmVehicleCapacitySyncEvent:writeStream(streamId, connection)
         NetworkUtil.writeNodeObject(streamId, self.vehicle)
         streamWriteInt32(streamId, self.fillUnitIndex or 1)
         streamWriteInt32(streamId, self.appliedCapacity or 0)
+        streamWriteUIntN(streamId, self.actionType or RmVehicleCapacitySyncEvent.ACTION_SET_CAPACITY, 2)
     end
 end
 
@@ -232,13 +236,13 @@ function RmVehicleCapacitySyncEvent:runOnServer(connection)
     -- Send response back to requesting client
     Log:debug("Server sending response: errorCode=%d, appliedCapacity=%d", errorCode, appliedCapacity)
     connection:sendEvent(RmVehicleCapacitySyncEvent.newServerToClient(
-        errorCode, vehicle, self.fillUnitIndex, appliedCapacity))
+        errorCode, vehicle, self.fillUnitIndex, appliedCapacity, self.actionType))
 
     -- If successful, broadcast to all OTHER clients
     if errorCode == RmVehicleCapacitySyncEvent.RESULT_OK then
         Log:debug("Broadcasting success to other clients")
         g_server:broadcastEvent(RmVehicleCapacitySyncEvent.newServerToClient(
-            errorCode, vehicle, self.fillUnitIndex, appliedCapacity), false, connection)
+            errorCode, vehicle, self.fillUnitIndex, appliedCapacity, self.actionType), false, connection)
     end
 end
 
@@ -253,39 +257,35 @@ function RmVehicleCapacitySyncEvent:runOnClient()
     if self.errorCode == RmVehicleCapacitySyncEvent.RESULT_OK then
         -- Update local state
         if vehicle ~= nil then
-            local uniqueId = vehicle.uniqueId
+            local success
+            local err
 
-            if uniqueId == nil then
-                Log:warning("Client: Vehicle %s has nil uniqueId", vehicleName)
-                return
+            if self.actionType == RmVehicleCapacitySyncEvent.ACTION_RESET_CAPACITY then
+                local resetIndex = self.fillUnitIndex > 0 and self.fillUnitIndex or nil
+                success, err = RmAdjustStorageCapacity:resetVehicleCapacity(vehicle, resetIndex)
+            else
+                success, err = RmAdjustStorageCapacity:setVehicleCapacity(
+                    vehicle, self.fillUnitIndex, self.appliedCapacity)
             end
 
-            -- Apply the capacity locally
-            if self.appliedCapacity > 0 then
-                if RmAdjustStorageCapacity.vehicleCapacities[uniqueId] == nil then
-                    RmAdjustStorageCapacity.vehicleCapacities[uniqueId] = {}
-                end
-
-                RmAdjustStorageCapacity.vehicleCapacities[uniqueId][self.fillUnitIndex] = self.appliedCapacity
-                RmAdjustStorageCapacity:applyVehicleCapacities(vehicle)
-            else
-                -- Reset - remove the entry
-                if RmAdjustStorageCapacity.vehicleCapacities[uniqueId] ~= nil then
-                    RmAdjustStorageCapacity.vehicleCapacities[uniqueId][self.fillUnitIndex] = nil
-                    -- Clean up empty entry
-                    if next(RmAdjustStorageCapacity.vehicleCapacities[uniqueId]) == nil then
-                        RmAdjustStorageCapacity.vehicleCapacities[uniqueId] = nil
-                    end
-                end
-                RmAdjustStorageCapacity:applyVehicleCapacities(vehicle)
+            if not success then
+                Log:warning("Client could not apply capacity update for %s: %s",
+                    vehicleName, err or "unknown")
+                return
             end
 
             Log:debug("MP: Updated local capacity for %s fillUnit=%d to %d",
                 vehicleName, self.fillUnitIndex, self.appliedCapacity)
 
             -- Show success message
-            g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
-                string.format(g_i18n:getText("rm_asc_vehicle_capacitySet"), vehicleName, self.appliedCapacity))
+            if self.actionType == RmVehicleCapacitySyncEvent.ACTION_RESET_CAPACITY then
+                g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
+                    g_i18n:getText("rm_asc_status_reset"))
+            else
+                g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
+                    string.format(g_i18n:getText("rm_asc_vehicle_capacitySet"),
+                        vehicleName, self.appliedCapacity))
+            end
         else
             Log:warning("Client: Vehicle not found in response")
         end
@@ -363,7 +363,8 @@ function RmVehicleCapacitySyncEvent.sendSetCapacity(vehicle, fillUnitIndex, newC
             -- Broadcast to clients if MP
             if isMultiplayer then
                 g_server:broadcastEvent(RmVehicleCapacitySyncEvent.newServerToClient(
-                    RmVehicleCapacitySyncEvent.RESULT_OK, vehicle, fillUnitIndex, newCapacity))
+                    RmVehicleCapacitySyncEvent.RESULT_OK, vehicle, fillUnitIndex, newCapacity,
+                    RmVehicleCapacitySyncEvent.ACTION_SET_CAPACITY))
             end
 
             local messageKey
@@ -413,7 +414,8 @@ function RmVehicleCapacitySyncEvent.sendResetCapacity(vehicle, fillUnitIndex)
             -- Broadcast to clients if MP
             if isMultiplayer then
                 g_server:broadcastEvent(RmVehicleCapacitySyncEvent.newServerToClient(
-                    RmVehicleCapacitySyncEvent.RESULT_OK, vehicle, fillUnitIndex or 0, 0))
+                    RmVehicleCapacitySyncEvent.RESULT_OK, vehicle, fillUnitIndex or 0, 0,
+                    RmVehicleCapacitySyncEvent.ACTION_RESET_CAPACITY))
             end
 
             g_currentMission:addIngameNotification(FSBaseMission.INGAME_NOTIFICATION_OK,
