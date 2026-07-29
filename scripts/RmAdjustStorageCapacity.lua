@@ -1940,9 +1940,13 @@ function RmAdjustStorageCapacity:applyVehicleCapacity(vehicle, fillUnitIndex, ca
 
     -- Apply proportional discharge speed
     local spec = vehicle[RmVehicleStorageCapacity.SPEC_TABLE_NAME]
-    if spec ~= nil and spec.applyProportionalDischargeSpeed ~= nil then
-        -- Call via method on the vehicle/spec
+    if spec ~= nil then
         RmVehicleStorageCapacity.applyProportionalDischargeSpeed(vehicle, fillUnitIndex, capacity)
+    end
+
+    -- Capacity affects the additional-mass calculation, so discard the cached value.
+    if vehicle.setMassDirty ~= nil then
+        vehicle:setMassDirty()
     end
 
     -- Update FillVolume cached capacity for visual representation
