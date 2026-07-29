@@ -681,9 +681,9 @@ function RmAdjustStorageCapacity:applyProportionalLoadSpeed(placeable, multiplie
         return
     end
 
-    if multiplier <= 0 or multiplier == 1.0 then
-        Log:debug("applyProportionalLoadSpeed: multiplier is %.2f, no change needed", multiplier)
-        return -- No change needed
+    if multiplier <= 0 then
+        Log:debug("applyProportionalLoadSpeed: multiplier is %.2f, no change applied", multiplier)
+        return
     end
 
     local uniqueId = placeable.uniqueId
@@ -719,6 +719,33 @@ function RmAdjustStorageCapacity:applyProportionalLoadSpeed(placeable, multiplie
                 oldSpeedMS * 1000, newSpeed, multiplier, placeable:getName())
         end
     end
+end
+
+--- Refresh load speed from the placeable's complete set of capacity overrides
+---@param placeable table The placeable
+---@param fallbackCapacity table|nil Capacity settings to use when no stored entry exists
+function RmAdjustStorageCapacity:refreshLoadSpeed(placeable, fallbackCapacity)
+    if placeable == nil then
+        return
+    end
+
+    if not self.autoScaleSpeed then
+        self:resetLoadSpeed(placeable)
+        return
+    end
+
+    local uniqueId = placeable.uniqueId
+    local customCapacity = uniqueId ~= nil and self.customCapacities[uniqueId] or nil
+    customCapacity = customCapacity or fallbackCapacity
+
+    if customCapacity == nil then
+        self:resetLoadSpeed(placeable)
+        return
+    end
+
+    local multiplier = self:getMaxCapacityMultiplier(placeable, customCapacity)
+    Log:debug("Capacity multiplier for %s: %.2f", placeable:getName(), multiplier)
+    self:applyProportionalLoadSpeed(placeable, multiplier)
 end
 
 --- Update visual fill planes after capacity change
@@ -1110,17 +1137,8 @@ function RmAdjustStorageCapacity:applyCapacitiesToPlaceable(placeable, customCap
     if applied > 0 then
         Log:debug("Applied %d capacity changes to %s", applied, placeable:getName())
 
-        -- Apply proportional load speed based on capacity multiplier
-        local multiplier = self:getMaxCapacityMultiplier(placeable, customCapacity)
-        Log:debug("Capacity multiplier for %s: %.2f (sharedCapacity=%s, fillTypes=%s)",
-            placeable:getName(), multiplier,
-            tostring(customCapacity.sharedCapacity),
-            customCapacity.fillTypes and "yes" or "no")
-        if multiplier ~= 1.0 then
-            self:applyProportionalLoadSpeed(placeable, multiplier)
-        else
-            Log:debug("Skipping load speed adjustment for %s (multiplier is 1.0)", placeable:getName())
-        end
+        -- Recalculate from every stored override, not only the fields applied by this call.
+        self:refreshLoadSpeed(placeable, customCapacity)
 
         -- Update visual fill planes to reflect new capacity
         -- Skip during savegame load - fill levels are 0 at this point, so recreating
@@ -1440,6 +1458,7 @@ function RmAdjustStorageCapacity:setCapacity(placeable, fillTypeIndex, newCapaci
             -- Update visual fill planes
             self:updatePlaceableFillPlanes(placeable)
         end
+        self:refreshLoadSpeed(placeable)
 
         Log:info("Set HusbandryFood capacity for %s to %d", placeable:getName(), newCapacity)
     else
@@ -1599,9 +1618,6 @@ function RmAdjustStorageCapacity:resetCapacity(placeable, fillTypeIndex)
             self:clampExcessFill(info.storage)
         end
 
-        -- Reset load speed to original
-        self:resetLoadSpeed(placeable)
-
         self.customCapacities[uniqueId] = nil
         Log:info("Reset all capacities for %s to original", placeable:getName())
     end
@@ -1622,6 +1638,8 @@ function RmAdjustStorageCapacity:resetCapacity(placeable, fillTypeIndex)
             self.customCapacities[uniqueId] = nil
         end
     end
+
+    self:refreshLoadSpeed(placeable)
 
     return true, nil
 end
