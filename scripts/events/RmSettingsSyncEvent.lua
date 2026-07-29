@@ -41,7 +41,8 @@ function RmSettingsSyncEvent:readStream(streamId, connection)
             g_server:broadcastEvent(self, false, connection)
         end
     else
-        Log:warning("RmSettingsSyncEvent: Rejected - not server or master user")
+        Log:warning("RmSettingsSyncEvent: Rejected settings change from non-admin client")
+        connection:sendEvent(RmSettingsSyncEvent.new())
     end
 end
 

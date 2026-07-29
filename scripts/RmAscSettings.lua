@@ -26,6 +26,21 @@ function RmAscSettings.isShortcutEnabled()
     return RmAscSettings.showTriggerShortcutState == 2
 end
 
+--- Check whether the local player may change shared settings
+---@return boolean
+function RmAscSettings.canChangeSettings()
+    if g_currentMission == nil then
+        return false
+    end
+
+    local missionInfo = g_currentMission.missionDynamicInfo
+    if missionInfo == nil or not missionInfo.isMultiplayer then
+        return true
+    end
+
+    return g_currentMission:getIsServer() or g_currentMission.isMasterUser == true
+end
+
 -- ============================================================================
 -- GUI Initialization
 -- ============================================================================
@@ -168,9 +183,13 @@ end
 -- ============================================================================
 
 --- Called when BinaryOption is clicked
----@param _ table element (unused)
+---@param element table BinaryOption element
 ---@param state number New state (1 = OFF, 2 = ON)
-function RmAscSettings.onToggleChanged(_, state)
+function RmAscSettings.onToggleChanged(element, state)
+    if not RmAscSettings.canChangeSettings() then
+        element:setState(RmAscSettings.showTriggerShortcutState)
+        return
+    end
     RmAscSettings.updateShowTriggerShortcut(state)
 end
 
@@ -188,9 +207,13 @@ function RmAscSettings.updateShowTriggerShortcut(state, noEventSend)
 end
 
 --- Called when auto-scale mass BinaryOption is clicked
----@param _ table element (unused)
+---@param element table BinaryOption element
 ---@param state number New state (1 = OFF, 2 = ON)
-function RmAscSettings.onAutoScaleMassChanged(_, state)
+function RmAscSettings.onAutoScaleMassChanged(element, state)
+    if not RmAscSettings.canChangeSettings() then
+        element:setState(RmAscSettings.autoScaleMassState)
+        return
+    end
     RmAscSettings.updateAutoScaleMass(state)
 end
 
@@ -231,9 +254,13 @@ function RmAscSettings.dirtyAllVehicleMass()
 end
 
 --- Called when auto-scale speed BinaryOption is clicked
----@param _ table element (unused)
+---@param element table BinaryOption element
 ---@param state number New state (1 = OFF, 2 = ON)
-function RmAscSettings.onAutoScaleSpeedChanged(_, state)
+function RmAscSettings.onAutoScaleSpeedChanged(element, state)
+    if not RmAscSettings.canChangeSettings() then
+        element:setState(RmAscSettings.autoScaleSpeedState)
+        return
+    end
     RmAscSettings.updateAutoScaleSpeed(state)
 end
 
@@ -311,19 +338,24 @@ end
 --- Called via updateGameSettings hook when settings frame opens
 ---@param settingsPage table InGameMenuSettingsFrame instance
 function RmAscSettings.updateGameSettings(settingsPage)
+    local canChange = RmAscSettings.canChangeSettings()
+
     local element = settingsPage.rmAscShowTriggerShortcut
     if element ~= nil then
         element:setState(RmAscSettings.showTriggerShortcutState)
+        element:setDisabled(not canChange)
     end
 
     local massElement = settingsPage.rmAscAutoScaleMass
     if massElement ~= nil then
         massElement:setState(RmAscSettings.autoScaleMassState)
+        massElement:setDisabled(not canChange)
     end
 
     local speedElement = settingsPage.rmAscAutoScaleSpeed
     if speedElement ~= nil then
         speedElement:setState(RmAscSettings.autoScaleSpeedState)
+        speedElement:setDisabled(not canChange)
     end
 end
 
