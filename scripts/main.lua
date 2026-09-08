@@ -110,8 +110,10 @@ local function init()
     )
     Log:info("Vehicle specialization registered")
 
-    -- Hook to inject specializations into appropriate types
-    TypeManager.validateTypes = Utils.prependedFunction(TypeManager.validateTypes, validatePlaceableTypes)
+    -- Hook to inject specializations into appropriate types.
+    -- Both APPEND, never prepend: addSpecialization() appends, so our spec must land after any spec
+    -- another mod or DLC injects here, or our onLoad runs before theirs has built its spec table.
+    TypeManager.validateTypes = Utils.appendedFunction(TypeManager.validateTypes, validatePlaceableTypes)
     TypeManager.validateTypes = Utils.appendedFunction(TypeManager.validateTypes, validateVehicleTypes)
 end
 
