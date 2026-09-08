@@ -149,22 +149,15 @@ The mod supports multiplayer with a permission system:
 
 See [CHANGELOG.md](CHANGELOG.md) for the full changelog.
 
+### 1.0.1.2
+
+- Fixed the game getting stuck on the loading screen when the Pumps n' Hoses Pack is enabled; silos now load correctly
+
 ### 1.0.1.1
 
-- Added Russian translation (contributed by Maestro-Ralf)
 - Fixed a corrupted or hand-edited capacity in a savegame loading the storage empty; the game's default capacity is now restored instead
 - Fixed storage staying stuck over its limit after such a capacity was discarded on load; the excess fill is now trimmed
-
-### 1.0.1.0
-
-- Fixed multiplayer: joining players now see the correct fill level for silos, productions, husbandries, and vehicles filled above their original capacity
-- Fixed multiplayer: animal-food troughs now show the correct feed level for other players when filled above the original capacity
-- Fixed shovels, loaders, and telehandlers reverting a raised capacity after scooping; it now sticks across save and reload
-- Stopped offering the game's auto-managed fill units for editing (baler bale chamber, net/twine/film slots, straw-blower buffer); additive tanks stay adjustable
-- Made a stationary baler's fixed material bunker adjustable again, and stopped listing collected-bale platforms (their capacity is a bale count, not bulk storage)
-- Stopped listing count-based units on tree planters, feller bunchers, and bale carriers (saplings, trees, and bales are counted, not stored in bulk)
-- Fixed savegames holding more than capacity (corrupt or hand-edited) getting stuck; the excess fill is now trimmed on load
-- Fixed very large capacities (above ~2.1 billion) wrapping to negative values; capacity now caps at the maximum with a notification
+- Added Russian (ru) translation - contributed by Maestro-Ralf
 
 ## License
 

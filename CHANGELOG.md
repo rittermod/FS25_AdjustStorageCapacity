@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.1.2:
+- Fixed the game getting stuck on the loading screen when the Pumps n' Hoses Pack is enabled; silos now load correctly
+
 ## 1.0.1.1:
 - Fixed a corrupted or hand-edited capacity in a savegame loading the storage empty; the game's default capacity is now restored instead
 - Fixed storage staying stuck over its limit after such a capacity was discarded on load; the excess fill is now trimmed
